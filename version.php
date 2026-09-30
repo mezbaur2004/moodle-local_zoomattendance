@@ -25,10 +25,10 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_zoomattendance';
-$plugin->version = 2026100100;
+$plugin->version = 2026100101;
 $plugin->requires = 2022112800; // Moodle 4.1.
 $plugin->maturity = MATURITY_ALPHA;
-$plugin->release = '0.2.0';
+$plugin->release = '0.2.1';
 $plugin->dependencies = [
     'mod_zoom' => 2026082400, // Mod_zoom v5.5.1.
 ];

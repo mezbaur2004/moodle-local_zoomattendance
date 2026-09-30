@@ -1,0 +1,14 @@
+/* Course attendance: the name column stays visible while the occurrence columns scroll. */
+.local-zoomattendance-course th,
+.local-zoomattendance-course td {
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.local-zoomattendance-course .local-zoomattendance-name {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background-color: #fff;
+    background-color: var(--bs-body-bg, var(--white, #fff));
+}

@@ -593,8 +593,12 @@ is on, we show aggregates only (D10).
 3. **Sessions matching no occurrence** (ad-hoc start on an unscheduled day, or an occurrence
    whose event was deleted before our snapshot existed): create an `inferred` occurrence
    using the fallback below and flag it in the report as "unscheduled".
-4. **Attendance is per occurrence**. Activity-level summaries aggregate across occurrences:
-   the number present/late/absent, and mean % over non-excluded occurrences.
+4. **Attendance is per occurrence**. The course summary shows every evaluated occurrence as
+   its own column and one course overall per participant (`classes/local/summary.php`): the
+   percentage is total attended time over the summed denominators of the occurrences the
+   participant was expected at; the status applies the site default thresholds to it and is
+   late when the first join was after the activity's late period in more than half of those
+   occurrences. With one occurrence it equals that occurrence's status.
 5. **Cancelled/excluded occurrences** (`status` 1/2) are shown but not counted.
 
 ### Fallback for meetings without a fixed schedule
@@ -632,7 +636,9 @@ Sessions page; it links to it.
 
 ### Per-course summary (`/local/zoomattendance/course.php?id=<courseid>`)
 Linked via `local_zoomattendance_extend_navigation_course()`. One row per user, one column
-per enabled Zoom activity (aggregate % and P/L/A counts).
+per evaluated occurrence (status and %), grouped under its activity, and a *Course overall*
+column (status and %, with the P/L/A counts as a tooltip). Built by
+`classes/local/course_summary.php`. The per-user page shows the same course overall at the top.
 
 ### Per-user page (`/local/zoomattendance/user.php?course=<id>&user=<id>`)
 * Reached from the course participant profile with `core_myprofile` navigation
