@@ -24,14 +24,14 @@
 
 namespace local_zoomattendance\local;
 
+#[\PHPUnit\Framework\Attributes\CoversClass(status::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(settings::class)]
 /**
  * Tests for status evaluation.
  *
  * @covers \local_zoomattendance\local\status
  * @covers \local_zoomattendance\local\settings
  */
-#[\PHPUnit\Framework\Attributes\CoversClass(status::class)]
-#[\PHPUnit\Framework\Attributes\CoversClass(settings::class)]
 final class status_test extends \advanced_testcase {
     /**
      * Status cases with the default thresholds (75 / 50 / 10 min) and a one hour window.

@@ -24,12 +24,12 @@
 
 namespace local_zoomattendance\local;
 
+#[\PHPUnit\Framework\Attributes\CoversClass(occurrence_mapper::class)]
 /**
  * Tests for the occurrence mapper.
  *
  * @covers \local_zoomattendance\local\occurrence_mapper
  */
-#[\PHPUnit\Framework\Attributes\CoversClass(occurrence_mapper::class)]
 final class occurrence_mapper_test extends \basic_testcase {
     /**
      * Build a session.

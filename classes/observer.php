@@ -38,7 +38,7 @@ class observer {
      */
     public static function course_module_deleted(\core\event\course_module_deleted $event): void {
         global $DB;
-        $DB->delete_records('local_zoomatt_settings', ['cmid' => $event->objectid]);
+        $DB->delete_records('local_zoomattendance_setting', ['cmid' => $event->objectid]);
         if (($event->other['modulename'] ?? '') === 'zoom') {
             sync::delete_for_zoomids([(int) $event->other['instanceid']]);
         }
@@ -60,7 +60,7 @@ class observer {
      */
     public static function user_deleted(\core\event\user_deleted $event): void {
         global $DB;
-        $DB->delete_records('local_zoomatt_result', ['userid' => $event->objectid]);
+        $DB->delete_records('local_zoomattendance_result', ['userid' => $event->objectid]);
     }
 
     /**
@@ -75,7 +75,7 @@ class observer {
             $enabled = \local_zoomattendance\local\settings::from_override(
                 zoom_source::override_from_instance($instance)
             )->enabled;
-            if (!$enabled && !$DB->record_exists('local_zoomatt_occurrence', ['zoomid' => $instance->id])) {
+            if (!$enabled && !$DB->record_exists('local_zoomattendance_occ', ['zoomid' => $instance->id])) {
                 continue;
             }
             try {

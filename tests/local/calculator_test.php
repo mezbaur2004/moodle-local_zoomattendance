@@ -24,12 +24,12 @@
 
 namespace local_zoomattendance\local;
 
+#[\PHPUnit\Framework\Attributes\CoversClass(calculator::class)]
 /**
  * Tests for the interval calculator.
  *
  * @covers \local_zoomattendance\local\calculator
  */
-#[\PHPUnit\Framework\Attributes\CoversClass(calculator::class)]
 final class calculator_test extends \basic_testcase {
     /**
      * Clip-and-merge cases.

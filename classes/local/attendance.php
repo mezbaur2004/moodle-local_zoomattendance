@@ -79,13 +79,13 @@ class attendance {
         global $DB;
         if ($this->occurrences === null) {
             $this->occurrences = $DB->get_records(
-                'local_zoomatt_occurrence',
+                'local_zoomattendance_occ',
                 ['zoomid' => $this->instance->id],
                 'timestart, id'
             );
             $this->sessioncounts = $DB->get_records_sql_menu(
                 "SELECT occurrenceid, COUNT(1)
-                   FROM {local_zoomatt_session}
+                   FROM {local_zoomattendance_session}
                   WHERE zoomid = :zoomid AND occurrenceid IS NOT NULL
                GROUP BY occurrenceid",
                 ['zoomid' => $this->instance->id]
@@ -143,7 +143,7 @@ class attendance {
             $params['userid'] = $userid;
         }
         $grouped = [];
-        foreach ($DB->get_records_select('local_zoomatt_result', $where, $params, 'attendedsecs DESC, id') as $row) {
+        foreach ($DB->get_records_select('local_zoomattendance_result', $where, $params, 'attendedsecs DESC, id') as $row) {
             $grouped[$row->occurrenceid][$row->identitykey] = $row;
         }
         return $grouped;

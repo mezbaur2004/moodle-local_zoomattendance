@@ -70,13 +70,13 @@ class settings {
      */
     public static function for_cm(int $cmid): self {
         global $DB;
-        return self::from_override($DB->get_record('local_zoomatt_settings', ['cmid' => $cmid]) ?: null);
+        return self::from_override($DB->get_record('local_zoomattendance_setting', ['cmid' => $cmid]) ?: null);
     }
 
     /**
      * Apply an override row (or none) to the site defaults.
      *
-     * @param \stdClass|null $override A local_zoomatt_settings row.
+     * @param \stdClass|null $override A local_zoomattendance_setting row.
      * @return self
      */
     public static function from_override(?\stdClass $override): self {
@@ -110,7 +110,7 @@ class settings {
     /**
      * Seconds an occurrence's percentages are measured against.
      *
-     * @param \stdClass $occurrence A local_zoomatt_occurrence row.
+     * @param \stdClass $occurrence A local_zoomattendance_occ row.
      * @return int
      */
     public function denominator_for(\stdClass $occurrence): int {

@@ -105,7 +105,7 @@ class sync {
 
         $dirty = self::snapshot_schedule($instance);
 
-        $occurrences = $DB->get_records('local_zoomatt_occurrence', ['zoomid' => $zoomid]);
+        $occurrences = $DB->get_records('local_zoomattendance_occ', ['zoomid' => $zoomid]);
         $scheduled = array_filter($occurrences, function ($o) {
             return $o->source === self::SOURCE_SCHEDULE;
         });
@@ -129,7 +129,7 @@ class sync {
                     $occurrence->timestart = $cluster->timestart;
                     $occurrence->timeend = $cluster->timeend;
                     $occurrence->timemodified = $now;
-                    $DB->update_record('local_zoomatt_occurrence', $occurrence);
+                    $DB->update_record('local_zoomattendance_occ', $occurrence);
                     $dirty[$occurrence->id] = true;
                 }
             } else {
@@ -148,7 +148,7 @@ class sync {
         }
 
         // Update session bookkeeping and collect occurrences whose inputs changed.
-        $rows = $DB->get_records('local_zoomatt_session', ['zoomid' => $zoomid], '', '*');
+        $rows = $DB->get_records('local_zoomattendance_session', ['zoomid' => $zoomid], '', '*');
         $rowsbydetails = [];
         foreach ($rows as $row) {
             $rowsbydetails[$row->detailsid] = $row;
@@ -158,7 +158,7 @@ class sync {
             $row = $rowsbydetails[$detailsid] ?? null;
             unset($rowsbydetails[$detailsid]);
             if (!$row) {
-                $DB->insert_record('local_zoomatt_session', (object) [
+                $DB->insert_record('local_zoomattendance_session', (object) [
                     'detailsid' => $detailsid,
                     'zoomid' => $zoomid,
                     'occurrenceid' => $target,
@@ -175,24 +175,24 @@ class sync {
                 $row->occurrenceid = $target;
                 $row->fingerprint = $session->fingerprint;
                 $row->timesynced = $now;
-                $DB->update_record('local_zoomatt_session', $row);
+                $DB->update_record('local_zoomattendance_session', $row);
             }
         }
         foreach ($rowsbydetails as $row) {
             // The mod_zoom session is gone (instance delete, privacy delete).
             $dirty[$row->occurrenceid] = true;
-            $DB->delete_records('local_zoomatt_session', ['id' => $row->id]);
+            $DB->delete_records('local_zoomattendance_session', ['id' => $row->id]);
         }
 
         // Inferred occurrences that no longer have sessions are derived data: drop them.
         foreach ($inferredbykey as $occurrence) {
-            $DB->delete_records('local_zoomatt_result', ['occurrenceid' => $occurrence->id]);
-            $DB->delete_records('local_zoomatt_occurrence', ['id' => $occurrence->id]);
+            $DB->delete_records('local_zoomattendance_result', ['occurrenceid' => $occurrence->id]);
+            $DB->delete_records('local_zoomattendance_occ', ['id' => $occurrence->id]);
             unset($dirty[$occurrence->id]);
         }
 
         unset($dirty['']);
-        $occurrences = $DB->get_records('local_zoomatt_occurrence', ['zoomid' => $zoomid]);
+        $occurrences = $DB->get_records('local_zoomattendance_occ', ['zoomid' => $zoomid]);
         $bydetails = [];
         foreach ($map as $detailsid => $occurrenceid) {
             $bydetails[$occurrenceid][$detailsid] = $sessions[$detailsid];
@@ -218,7 +218,7 @@ class sync {
         $now = time();
         $zoomid = (int) $instance->id;
         $windows = self::scheduled_windows($instance);
-        $existing = $DB->get_records('local_zoomatt_occurrence', ['zoomid' => $zoomid, 'source' => self::SOURCE_SCHEDULE]);
+        $existing = $DB->get_records('local_zoomattendance_occ', ['zoomid' => $zoomid, 'source' => self::SOURCE_SCHEDULE]);
         $dirty = [];
 
         foreach ($existing as $occurrence) {
@@ -227,7 +227,7 @@ class sync {
                 if ((int) $occurrence->timestart > $now && (int) $occurrence->status === self::STATUS_ACTIVE) {
                     $occurrence->status = self::STATUS_CANCELLED;
                     $occurrence->timemodified = $now;
-                    $DB->update_record('local_zoomatt_occurrence', $occurrence);
+                    $DB->update_record('local_zoomattendance_occ', $occurrence);
                 }
                 continue;
             }
@@ -247,7 +247,7 @@ class sync {
             }
             if ($changed) {
                 $occurrence->timemodified = $now;
-                $DB->update_record('local_zoomatt_occurrence', $occurrence);
+                $DB->update_record('local_zoomattendance_occ', $occurrence);
             }
         }
 
@@ -310,7 +310,7 @@ class sync {
             'timecreated' => $now,
             'timemodified' => $now,
         ];
-        $occurrence->id = $DB->insert_record('local_zoomatt_occurrence', $occurrence);
+        $occurrence->id = $DB->insert_record('local_zoomattendance_occ', $occurrence);
         return $occurrence;
     }
 
@@ -353,21 +353,21 @@ class sync {
         }
 
         $transaction = $DB->start_delegated_transaction();
-        $existing = $DB->get_records('local_zoomatt_result', ['occurrenceid' => $occurrence->id]);
+        $existing = $DB->get_records('local_zoomattendance_result', ['occurrenceid' => $occurrence->id]);
         foreach ($existing as $row) {
             if (!isset($computed[$row->identitykey])) {
-                $DB->delete_records('local_zoomatt_result', ['id' => $row->id]);
+                $DB->delete_records('local_zoomattendance_result', ['id' => $row->id]);
                 continue;
             }
             $new = $computed[$row->identitykey];
             unset($computed[$row->identitykey]);
             $new->id = $row->id;
-            $DB->update_record('local_zoomatt_result', $new);
+            $DB->update_record('local_zoomattendance_result', $new);
         }
         foreach ($computed as $new) {
-            $DB->insert_record('local_zoomatt_result', $new);
+            $DB->insert_record('local_zoomattendance_result', $new);
         }
-        $DB->update_record('local_zoomatt_occurrence', (object) [
+        $DB->update_record('local_zoomattendance_occ', (object) [
             'id' => $occurrence->id,
             'actualsecs' => $actualsecs,
             'timecomputed' => $now,
@@ -491,12 +491,12 @@ class sync {
         }
         [$insql, $params] = $DB->get_in_or_equal($zoomids, SQL_PARAMS_NAMED);
         $DB->delete_records_select(
-            'local_zoomatt_result',
-            "occurrenceid IN (SELECT id FROM {local_zoomatt_occurrence} WHERE zoomid $insql)",
+            'local_zoomattendance_result',
+            "occurrenceid IN (SELECT id FROM {local_zoomattendance_occ} WHERE zoomid $insql)",
             $params
         );
-        $DB->delete_records_select('local_zoomatt_session', "zoomid $insql", $params);
-        $DB->delete_records_select('local_zoomatt_occurrence', "zoomid $insql", $params);
+        $DB->delete_records_select('local_zoomattendance_session', "zoomid $insql", $params);
+        $DB->delete_records_select('local_zoomattendance_occ', "zoomid $insql", $params);
     }
 
     /**
@@ -505,17 +505,17 @@ class sync {
     public static function delete_orphans(): void {
         global $DB;
         $zoomids = $DB->get_fieldset_sql("SELECT DISTINCT o.zoomid
-                                            FROM {local_zoomatt_occurrence} o
+                                            FROM {local_zoomattendance_occ} o
                                        LEFT JOIN {zoom} z ON z.id = o.zoomid
                                            WHERE z.id IS NULL
                                            UNION
                                           SELECT DISTINCT s.zoomid
-                                            FROM {local_zoomatt_session} s
+                                            FROM {local_zoomattendance_session} s
                                        LEFT JOIN {zoom} z ON z.id = s.zoomid
                                            WHERE z.id IS NULL");
         self::delete_for_zoomids($zoomids);
         $DB->delete_records_select(
-            'local_zoomatt_settings',
+            'local_zoomattendance_setting',
             'cmid NOT IN (SELECT id FROM {course_modules})'
         );
     }

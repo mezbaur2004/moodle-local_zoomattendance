@@ -332,10 +332,10 @@ That is why this plugin does its own calculation (B4).
 
 ## B3. Minimal database schema
 
-Table names use the `local_zoomatt_` prefix to keep them short (Moodle limits table names
-to 28 characters without prefix).
+Table names start with the component name, as Moodle requires, and stay within Moodle's
+28-character limit (without the site prefix).
 
-### `local_zoomatt_occurrence` — one row per scheduled (or inferred) occurrence
+### `local_zoomattendance_occ` — one row per scheduled (or inferred) occurrence
 | Field | Type | Notes |
 |---|---|---|
 | id | int10 PK | |
@@ -348,17 +348,17 @@ to 28 characters without prefix).
 | timecreated, timemodified | int10 | |
 | **unique** | (zoomid, occurrencekey) | makes snapshots idempotent |
 
-### `local_zoomatt_session` — sync bookkeeping per mod_zoom session
+### `local_zoomattendance_session` — sync bookkeeping per mod_zoom session
 | Field | Type | Notes |
 |---|---|---|
 | id | int10 PK | |
 | detailsid | int10 | → `zoom_meeting_details.id`, **unique** |
 | zoomid | int10 | indexed |
-| occurrenceid | int10 | → `local_zoomatt_occurrence.id`, nullable (NULL = not mapped) |
+| occurrenceid | int10 | → `local_zoomattendance_occ.id`, nullable (NULL = not mapped) |
 | fingerprint | char(40) | sha1 of (start_time, end_time, COUNT, MAX(id), SUM(COALESCE(userid,0))) of participants |
 | timesynced | int10 | |
 
-### `local_zoomatt_result` — per occurrence, per identity
+### `local_zoomattendance_result` — per occurrence, per identity
 | Field | Type | Notes |
 |---|---|---|
 | id | int10 PK | |
@@ -377,7 +377,7 @@ to 28 characters without prefix).
 
 Absent users get **no row**. Absence is "expected, but no result row".
 
-### `local_zoomatt_settings` — per-activity overrides (D4)
+### `local_zoomattendance_setting` — per-activity overrides (D4)
 | Field | Type | Notes |
 |---|---|---|
 | id | int10 PK | |
@@ -391,7 +391,7 @@ Absent users get **no row**. Absence is "expected, but no result row".
 
 Site defaults live in `config_plugins` (`get_config('local_zoomattendance', ...)`): `defaultenabled` (0), `presentpct` (75), `latepct` (50), `lategracemins` (10), `denominator` (`scheduled`), `earlymarginmins` (30), `latemarginmins` (30), `clustergapmins` (30).
 
-**Phase 2** (D6): `local_zoomatt_idmap` (courseid, identitykey, userid, usermodified,
+**Phase 2** (D6): `local_zoomattendance_idmap` (courseid, identitykey, userid, usermodified,
 timemodified), unique (courseid, identitykey), for teacher-confirmed manual matching of unmatched participants.
 
 ## B4. Attendance calculation model
@@ -403,7 +403,7 @@ new UUID.
 
 ### B4.2 Identity and de-duplication
 * Key = `u:<userid>` when `userid` is set, otherwise the `z:` key (B3).
-* Phase 2 (D6): map `z:` keys to users through `local_zoomatt_idmap` first.
+* Phase 2 (D6): map `z:` keys to users through `local_zoomattendance_idmap` first.
 * Drop exact duplicate segments per key: the same `(detailsid, join_time, leave_time)`
   (see the duplicate risk in A3).
 * When the same `(detailsid, zoomuserid, join_time, leave_time)` appears with **and**
@@ -453,7 +453,7 @@ changing a threshold takes effect immediately without recomputation.
 
 ### B4.7 Where thresholds live (D4)
 **Decision: both.** Site defaults (admin settings page) plus optional per-activity
-overrides (`local_zoomatt_settings`), editable on a plugin page linked from the activity's
+overrides (`local_zoomattendance_setting`), editable on a plugin page linked from the activity's
 secondary navigation (`activitysettings.php`). Using the page avoids injecting into
 mod_zoom's form. The per-activity page also holds the enable toggle (D8) and the denominator
 (D5). Rejected alternative: the core `coursemodule_standard_elements` /
@@ -489,7 +489,7 @@ Each occurrence report has three buckets:
 * **Unmatched Zoom participants** (`userid IS NULL`): grouped by identity key and shown with
   Zoom name, email (if the viewer may see it), duration and %. They never count towards
   statistics. In phase 2 (D6), a manager can map an unmatched identity to an expected user.
-  The mapping is stored per course in `local_zoomatt_idmap` and applies on the next recompute.
+  The mapping is stored per course in `local_zoomattendance_idmap` and applies on the next recompute.
 
 We also show a **weak-match badge** when `matchstrength = 1`: mod_zoom matched the user, but
 the participant's email is not the user's email/API identifier. This mitigates the
@@ -516,7 +516,7 @@ would give 25 + 15 + 30 = 70 min (117 %).
    * Rescheduled occurrence (same uuid, new time) → update, but only while it is in the future.
 2. **Detect changed sessions**: for each `zoom_meeting_details` row of an enabled activity,
    compute the fingerprint (one grouped SQL query over `zoom_meeting_participants`). Compare
-   it with `local_zoomatt_session.fingerprint`. New or changed → map to an occurrence (B8)
+   it with `local_zoomattendance_session.fingerprint`. New or changed → map to an occurrence (B8)
    and mark that occurrence dirty. Sessions that disappeared (mod_zoom reset or instance
    delete) → delete our session row and mark the occurrence dirty.
 3. **Recompute dirty occurrences** (B4). Inside one transaction per occurrence, upsert
@@ -530,7 +530,7 @@ Performance:
 * Step 2 is one aggregate query per activity, using the `detailsid` foreign key index.
 * Step 3 loads only the segments of dirty occurrences, ordered by `(userid, join_time)`
   through a recordset.
-* Reports read `local_zoomatt_result` plus one expected-users query per activity. Course
+* Reports read `local_zoomattendance_result` plus one expected-users query per activity. Course
   overview pages batch every cm in one `IN()` query.
 * Activities where the plugin is disabled are skipped entirely. Attendance is opt-in per
   activity; the site setting `defaultenabled` (off by default) makes it default-on (D8).
@@ -563,8 +563,8 @@ is on, we show aggregates only (D10).
 * **Privacy API** (`classes/privacy/provider.php`), implementing
   `\core_privacy\local\metadata\provider`, `\core_privacy\local\request\plugin\provider`,
   `\core_privacy\local\request\core_userlist_provider`:
-  * metadata: `local_zoomatt_result` (userid, attendedsecs, firstjoin, lastleave, displayname),
-    `local_zoomatt_idmap` (userid, usermodified), `local_zoomatt_settings.usermodified`.
+  * metadata: `local_zoomattendance_result` (userid, attendedsecs, firstjoin, lastleave, displayname),
+    `local_zoomattendance_idmap` (userid, usermodified), `local_zoomattendance_setting.usermodified`.
     The table descriptions state that the data is derived from `mod_zoom`.
   * contexts: module contexts of the cms holding the user's result rows.
   * export: per cm, per occurrence, attended minutes, %, and status at export time.
@@ -716,13 +716,13 @@ Phase 1 implements B1–B12 with decisions D1–D16, except for the items below.
   the meeting did not happen or `get_meeting_reports` has not run yet). This stops
   everyone being marked absent during the up-to-6-hour gap before mod_zoom imports a
   report. Cancelled and excluded occurrences are shown but never counted.
-* **Deferred to phase 2:** manual matching (`local_zoomatt_idmap`, D6) and manually
+* **Deferred to phase 2:** manual matching (`local_zoomattendance_idmap`, D6) and manually
   overriding an inferred window (`source = manual`, second half of D11). Teachers can
   already exclude and re-include an occurrence.
 * **Capabilities:** `viewemail` and `configure` from B6 were dropped. Unmatched
   participants' emails are never displayed (only a hashed key is stored), and site
   defaults use the normal admin settings page.
-* **Less personal data:** `local_zoomatt_settings` does not store `usermodified`, so
+* **Less personal data:** `local_zoomattendance_setting` does not store `usermodified`, so
   per-activity settings hold no personal data.
 * **Grouping rule (B4.8 point 3):** access is decided by the activity's visibility and
   availability conditions (`\core_availability\info_module::filter_user_list()`), which
@@ -754,7 +754,7 @@ All open questions were resolved by adopting the proposed defaults.
 | **D3** | Status semantics | B4.6 as written: ABSENT below `latepct`; PRESENT at or above `presentpct` and joined within `lategracemins`; otherwise LATE. Defaults 75 % / 50 % / 10 min. |
 | **D4** | Where thresholds live | Both: site defaults plus optional per-activity overrides, edited on a plugin page (`activitysettings.php`), not in the Zoom activity form. |
 | **D5** | Denominator | `scheduled` by default; per activity it can be switched to `actual`. |
-| **D6** | Manual matching | Yes, in **phase 2** (`local_zoomatt_idmap`). Phase 1 ships without it. |
+| **D6** | Manual matching | Yes, in **phase 2** (`local_zoomattendance_idmap`). Phase 1 ships without it. |
 | **D7** | Weak matches | Flagged with a badge, counted normally. |
 | **D8** | Default enablement | Opt-in per activity; site setting `defaultenabled` (default off) makes it default-on. |
 | **D9** | Tracked roles | `betracked` is given to the **student** archetype only. Teachers appear under "matched but not expected" unless an admin grants the capability. |

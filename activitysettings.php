@@ -42,7 +42,7 @@ $PAGE->set_title(format_string($cm->name) . ': ' . get_string('attendancesetting
 $PAGE->set_heading(format_string($course->fullname));
 $PAGE->set_pagelayout('incourse');
 
-$record = $DB->get_record('local_zoomatt_settings', ['cmid' => $cm->id]);
+$record = $DB->get_record('local_zoomattendance_setting', ['cmid' => $cm->id]);
 $form = new activitysettings($url);
 $current = ['id' => $cm->id];
 foreach (['enabled', 'presentpct', 'latepct', 'lategracemins', 'denominator'] as $field) {
@@ -60,9 +60,9 @@ if ($form->is_cancelled()) {
     $new->denominator = ($data->denominator ?? '') === '' ? null : $data->denominator;
     if ($record) {
         $new->id = $record->id;
-        $DB->update_record('local_zoomatt_settings', $new);
+        $DB->update_record('local_zoomattendance_setting', $new);
     } else {
-        $DB->insert_record('local_zoomatt_settings', $new);
+        $DB->insert_record('local_zoomattendance_setting', $new);
     }
 
     $message = get_string('changessaved');

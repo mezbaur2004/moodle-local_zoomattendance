@@ -26,12 +26,12 @@ namespace local_zoomattendance;
 
 use local_zoomattendance\local\sync;
 
+#[\PHPUnit\Framework\Attributes\CoversClass(observer::class)]
 /**
  * Observer tests.
  *
  * @covers \local_zoomattendance\observer
  */
-#[\PHPUnit\Framework\Attributes\CoversClass(observer::class)]
 final class observer_test extends \advanced_testcase {
     /**
      * Create a synced activity with one attending student.
@@ -56,8 +56,8 @@ final class observer_test extends \advanced_testcase {
         global $DB;
         $this->resetAfterTest();
         [, $cm] = $this->setup_activity();
-        $DB->insert_record('local_zoomatt_settings', (object) ['cmid' => $cm->id, 'enabled' => 1, 'timemodified' => time()]);
-        $this->assertSame(1, $DB->count_records('local_zoomatt_result'));
+        $DB->insert_record('local_zoomattendance_setting', (object) ['cmid' => $cm->id, 'enabled' => 1, 'timemodified' => time()]);
+        $this->assertSame(1, $DB->count_records('local_zoomattendance_result'));
 
         // Delete synchronously; mod_zoom's delete would call the Zoom API, so remove the row first.
         $DB->delete_records('zoom', ['id' => $cm->instance]);
@@ -69,10 +69,10 @@ final class observer_test extends \advanced_testcase {
         ]);
         $event->trigger();
 
-        $this->assertSame(0, $DB->count_records('local_zoomatt_result'));
-        $this->assertSame(0, $DB->count_records('local_zoomatt_occurrence'));
-        $this->assertSame(0, $DB->count_records('local_zoomatt_session'));
-        $this->assertSame(0, $DB->count_records('local_zoomatt_settings'));
+        $this->assertSame(0, $DB->count_records('local_zoomattendance_result'));
+        $this->assertSame(0, $DB->count_records('local_zoomattendance_occ'));
+        $this->assertSame(0, $DB->count_records('local_zoomattendance_session'));
+        $this->assertSame(0, $DB->count_records('local_zoomattendance_setting'));
     }
 
     public function test_user_deleted(): void {
@@ -80,7 +80,7 @@ final class observer_test extends \advanced_testcase {
         $this->resetAfterTest();
         [, , $user] = $this->setup_activity();
         delete_user($user);
-        $this->assertFalse($DB->record_exists('local_zoomatt_result', ['userid' => $user->id]));
+        $this->assertFalse($DB->record_exists('local_zoomattendance_result', ['userid' => $user->id]));
     }
 
     public function test_course_reset_mirrors_mod_zoom(): void {
@@ -88,10 +88,10 @@ final class observer_test extends \advanced_testcase {
         $this->resetAfterTest();
         require_once($CFG->dirroot . '/course/lib.php');
         [$course] = $this->setup_activity();
-        $this->assertSame(1, $DB->count_records('local_zoomatt_result'));
+        $this->assertSame(1, $DB->count_records('local_zoomattendance_result'));
 
         reset_course_userdata((object) ['id' => $course->id, 'reset_zoom_all' => 1, 'reset_start_date_old' => $course->startdate]);
         $this->assertSame(0, $DB->count_records('zoom_meeting_participants'));
-        $this->assertSame(0, $DB->count_records('local_zoomatt_result'));
+        $this->assertSame(0, $DB->count_records('local_zoomattendance_result'));
     }
 }

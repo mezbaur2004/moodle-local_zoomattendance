@@ -55,7 +55,7 @@ class zoom_source {
                   FROM {zoom} z
                   JOIN {modules} m ON m.name = :modname
                   JOIN {course_modules} cm ON cm.module = m.id AND cm.instance = z.id
-             LEFT JOIN {local_zoomatt_settings} s ON s.cmid = cm.id
+             LEFT JOIN {local_zoomattendance_setting} s ON s.cmid = cm.id
                  WHERE " . implode(' AND ', $where) . "
               ORDER BY z.id";
         return $DB->get_records_sql($sql, $params);

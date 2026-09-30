@@ -58,14 +58,14 @@ if ($action !== '') {
     }
     if ($action === 'exclude' || $action === 'include') {
         $target = $DB->get_record(
-            'local_zoomatt_occurrence',
+            'local_zoomattendance_occ',
             ['id' => required_param('target', PARAM_INT), 'zoomid' => $attendance->instance->id],
             '*',
             MUST_EXIST
         );
         if ((int) $target->status !== sync::STATUS_CANCELLED) {
             $DB->set_field(
-                'local_zoomatt_occurrence',
+                'local_zoomattendance_occ',
                 'status',
                 $action === 'exclude' ? sync::STATUS_EXCLUDED : sync::STATUS_ACTIVE,
                 ['id' => $target->id]

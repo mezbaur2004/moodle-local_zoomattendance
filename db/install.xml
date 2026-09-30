@@ -4,7 +4,7 @@
     xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
 >
   <TABLES>
-    <TABLE NAME="local_zoomatt_occurrence" COMMENT="Scheduled or inferred occurrences of a Zoom activity, snapshotted so past schedules survive mod_zoom calendar rewrites.">
+    <TABLE NAME="local_zoomattendance_occ" COMMENT="Scheduled or inferred occurrences of a Zoom activity, snapshotted so past schedules survive mod_zoom calendar rewrites.">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
         <FIELD NAME="zoomid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="The zoom.id of the activity instance."/>
@@ -25,7 +25,7 @@
         <INDEX NAME="zoomid_key" UNIQUE="true" FIELDS="zoomid, occurrencekey"/>
       </INDEXES>
     </TABLE>
-    <TABLE NAME="local_zoomatt_session" COMMENT="Sync bookkeeping: which mod_zoom session maps to which occurrence, and the data fingerprint last processed.">
+    <TABLE NAME="local_zoomattendance_session" COMMENT="Sync bookkeeping: which mod_zoom session maps to which occurrence, and the data fingerprint last processed.">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
         <FIELD NAME="detailsid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="The zoom_meeting_details.id of the session."/>
@@ -36,14 +36,14 @@
       </FIELDS>
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
-        <KEY NAME="occurrenceid" TYPE="foreign" FIELDS="occurrenceid" REFTABLE="local_zoomatt_occurrence" REFFIELDS="id"/>
+        <KEY NAME="occurrenceid" TYPE="foreign" FIELDS="occurrenceid" REFTABLE="local_zoomattendance_occ" REFFIELDS="id"/>
       </KEYS>
       <INDEXES>
         <INDEX NAME="detailsid" UNIQUE="true" FIELDS="detailsid"/>
         <INDEX NAME="zoomid" UNIQUE="false" FIELDS="zoomid"/>
       </INDEXES>
     </TABLE>
-    <TABLE NAME="local_zoomatt_result" COMMENT="Attended time per occurrence and participant identity. Absent users have no row.">
+    <TABLE NAME="local_zoomattendance_result" COMMENT="Attended time per occurrence and participant identity. Absent users have no row.">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
         <FIELD NAME="occurrenceid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
@@ -59,14 +59,14 @@
       </FIELDS>
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
-        <KEY NAME="occurrenceid" TYPE="foreign" FIELDS="occurrenceid" REFTABLE="local_zoomatt_occurrence" REFFIELDS="id"/>
+        <KEY NAME="occurrenceid" TYPE="foreign" FIELDS="occurrenceid" REFTABLE="local_zoomattendance_occ" REFFIELDS="id"/>
       </KEYS>
       <INDEXES>
         <INDEX NAME="occ_identity" UNIQUE="true" FIELDS="occurrenceid, identitykey"/>
         <INDEX NAME="userid" UNIQUE="false" FIELDS="userid"/>
       </INDEXES>
     </TABLE>
-    <TABLE NAME="local_zoomatt_settings" COMMENT="Per-activity overrides. Null fields inherit the site defaults.">
+    <TABLE NAME="local_zoomattendance_setting" COMMENT="Per-activity overrides. Null fields inherit the site defaults.">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
         <FIELD NAME="cmid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>

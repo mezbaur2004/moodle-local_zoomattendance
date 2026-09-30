@@ -24,12 +24,12 @@
 
 namespace local_zoomattendance\local;
 
+#[\PHPUnit\Framework\Attributes\CoversClass(attendance::class)]
 /**
  * Tests for expected users and per-occurrence evaluation.
  *
  * @covers \local_zoomattendance\local\attendance
  */
-#[\PHPUnit\Framework\Attributes\CoversClass(attendance::class)]
 final class attendance_test extends \advanced_testcase {
     /** @var \local_zoomattendance_generator */
     protected $generator;
@@ -53,7 +53,7 @@ final class attendance_test extends \advanced_testcase {
      * @param int $minutes
      * @return int
      */
-    protected function at(int $minutes): int {
+    protected function mins(int $minutes): int {
         return $this->t0 + $minutes * MINSECS;
     }
 
@@ -79,17 +79,17 @@ final class attendance_test extends \advanced_testcase {
         $absent = $dg->create_and_enrol($this->course, 'student');
         $teacher = $dg->create_and_enrol($this->course, 'editingteacher');
         $suspended = $dg->create_and_enrol($this->course, 'student', null, 'manual', 0, 0, ENROL_USER_SUSPENDED);
-        $enrolledlater = $dg->create_and_enrol($this->course, 'student', null, 'manual', $this->at(2 * 24 * 60));
+        $enrolledlater = $dg->create_and_enrol($this->course, 'student', null, 'manual', $this->mins(2 * 24 * 60));
         $outsider = $dg->create_user();
 
-        $cm = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $this->at(0),
+        $cm = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $this->mins(0),
             'duration' => HOURSECS]);
-        $session = $this->generator->create_session($cm, $this->at(0), $this->at(60));
-        $this->generator->create_participant($session, $this->at(0), $this->at(50), ['userid' => $present->id]);
-        $this->generator->create_participant($session, $this->at(20), $this->at(60), ['userid' => $late->id]);
-        $this->generator->create_participant($session, $this->at(0), $this->at(60), ['userid' => $teacher->id]);
-        $this->generator->create_participant($session, $this->at(0), $this->at(30), ['userid' => $outsider->id]);
-        $this->generator->create_participant($session, $this->at(0), $this->at(10), ['name' => 'Phone caller']);
+        $session = $this->generator->create_session($cm, $this->mins(0), $this->mins(60));
+        $this->generator->create_participant($session, $this->mins(0), $this->mins(50), ['userid' => $present->id]);
+        $this->generator->create_participant($session, $this->mins(20), $this->mins(60), ['userid' => $late->id]);
+        $this->generator->create_participant($session, $this->mins(0), $this->mins(60), ['userid' => $teacher->id]);
+        $this->generator->create_participant($session, $this->mins(0), $this->mins(30), ['userid' => $outsider->id]);
+        $this->generator->create_participant($session, $this->mins(0), $this->mins(10), ['name' => 'Phone caller']);
         sync::sync_all();
 
         $evaluation = $this->evaluate_first($cm);
@@ -112,16 +112,16 @@ final class attendance_test extends \advanced_testcase {
     public function test_thresholds_apply_without_recompute(): void {
         global $DB;
         $student = $this->getDataGenerator()->create_and_enrol($this->course, 'student');
-        $cm = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $this->at(0),
+        $cm = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $this->mins(0),
             'duration' => HOURSECS]);
-        $session = $this->generator->create_session($cm, $this->at(0), $this->at(30));
-        $this->generator->create_participant($session, $this->at(0), $this->at(30), ['userid' => $student->id]);
+        $session = $this->generator->create_session($cm, $this->mins(0), $this->mins(30));
+        $this->generator->create_participant($session, $this->mins(0), $this->mins(30), ['userid' => $student->id]);
         sync::sync_all();
 
         $this->assertSame(status::LATE, $this->evaluate_first($cm)->expected[$student->id]->status);
 
         // Measured against the time the meeting actually ran (30 minutes), 100%.
-        $DB->insert_record('local_zoomatt_settings', (object) ['cmid' => $cm->id, 'denominator' => 'actual',
+        $DB->insert_record('local_zoomattendance_setting', (object) ['cmid' => $cm->id, 'denominator' => 'actual',
             'timemodified' => time()]);
         $this->assertSame(status::PRESENT, $this->evaluate_first($cm)->expected[$student->id]->status);
     }
@@ -129,7 +129,7 @@ final class attendance_test extends \advanced_testcase {
     public function test_occurrence_states(): void {
         global $DB;
         $this->getDataGenerator()->create_and_enrol($this->course, 'student');
-        $past = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $this->at(0),
+        $past = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $this->mins(0),
             'duration' => HOURSECS]);
         $future = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => time() + DAYSECS,
             'duration' => HOURSECS]);
@@ -141,7 +141,7 @@ final class attendance_test extends \advanced_testcase {
         $this->assertNull(reset($evaluation->expected)->status);
         $this->assertSame(attendance::STATE_UPCOMING, $this->evaluate_first($future)->state);
 
-        $DB->set_field('local_zoomatt_occurrence', 'status', sync::STATUS_EXCLUDED, ['zoomid' => $past->instance]);
+        $DB->set_field('local_zoomattendance_occ', 'status', sync::STATUS_EXCLUDED, ['zoomid' => $past->instance]);
         $this->assertSame(attendance::STATE_EXCLUDED, $this->evaluate_first($past)->state);
     }
 
@@ -151,10 +151,10 @@ final class attendance_test extends \advanced_testcase {
         $inside = $dg->create_and_enrol($this->course, 'student');
         $outside = $dg->create_and_enrol($this->course, 'student');
         $dg->create_group_member(['groupid' => $group->id, 'userid' => $inside->id]);
-        $cm = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $this->at(0),
+        $cm = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $this->mins(0),
             'duration' => HOURSECS, 'groupmode' => SEPARATEGROUPS]);
-        $session = $this->generator->create_session($cm, $this->at(0), $this->at(60));
-        $this->generator->create_participant($session, $this->at(0), $this->at(10), ['name' => 'Unknown']);
+        $session = $this->generator->create_session($cm, $this->mins(0), $this->mins(60));
+        $this->generator->create_participant($session, $this->mins(0), $this->mins(10), ['name' => 'Unknown']);
         sync::sync_all();
 
         $evaluation = $this->evaluate_first($cm, (int) $group->id);
@@ -172,7 +172,7 @@ final class attendance_test extends \advanced_testcase {
         $dg->create_and_enrol($this->course, 'student');
         $dg->create_group_member(['groupid' => $group->id, 'userid' => $member->id]);
         set_config('enableavailability', 1);
-        $cm = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $this->at(0),
+        $cm = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $this->mins(0),
             'duration' => HOURSECS]);
         $availability = json_encode(\core_availability\tree::get_root_json(
             [\availability_group\condition::get_json($group->id)]

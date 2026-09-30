@@ -30,12 +30,12 @@ use core_privacy\local\request\userlist;
 use core_privacy\local\request\writer;
 use local_zoomattendance\local\sync;
 
+#[\PHPUnit\Framework\Attributes\CoversClass(provider::class)]
 /**
  * Privacy provider tests.
  *
  * @covers \local_zoomattendance\privacy\provider
  */
-#[\PHPUnit\Framework\Attributes\CoversClass(provider::class)]
 final class provider_test extends \core_privacy\tests\provider_testcase {
     /** @var \cm_info */
     protected $cm;
@@ -84,21 +84,21 @@ final class provider_test extends \core_privacy\tests\provider_testcase {
         global $DB;
         $context = \context_module::instance($this->cm->id);
         provider::delete_data_for_user(new approved_contextlist($this->user1, 'local_zoomattendance', [$context->id]));
-        $this->assertFalse($DB->record_exists('local_zoomatt_result', ['userid' => $this->user1->id]));
-        $this->assertTrue($DB->record_exists('local_zoomatt_result', ['userid' => $this->user2->id]));
+        $this->assertFalse($DB->record_exists('local_zoomattendance_result', ['userid' => $this->user1->id]));
+        $this->assertTrue($DB->record_exists('local_zoomattendance_result', ['userid' => $this->user2->id]));
     }
 
     public function test_delete_data_for_users(): void {
         global $DB;
         $context = \context_module::instance($this->cm->id);
         provider::delete_data_for_users(new approved_userlist($context, 'local_zoomattendance', [$this->user2->id]));
-        $this->assertTrue($DB->record_exists('local_zoomatt_result', ['userid' => $this->user1->id]));
-        $this->assertFalse($DB->record_exists('local_zoomatt_result', ['userid' => $this->user2->id]));
+        $this->assertTrue($DB->record_exists('local_zoomattendance_result', ['userid' => $this->user1->id]));
+        $this->assertFalse($DB->record_exists('local_zoomattendance_result', ['userid' => $this->user2->id]));
     }
 
     public function test_delete_data_for_all_users_in_context(): void {
         global $DB;
         provider::delete_data_for_all_users_in_context(\context_module::instance($this->cm->id));
-        $this->assertSame(0, $DB->count_records('local_zoomatt_result'));
+        $this->assertSame(0, $DB->count_records('local_zoomattendance_result'));
     }
 }

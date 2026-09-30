@@ -49,7 +49,7 @@ class provider implements
      * @return collection
      */
     public static function get_metadata(collection $collection): collection {
-        $collection->add_database_table('local_zoomatt_result', [
+        $collection->add_database_table('local_zoomattendance_result', [
             'userid' => 'privacy:metadata:result:userid',
             'displayname' => 'privacy:metadata:result:displayname',
             'attendedsecs' => 'privacy:metadata:result:attendedsecs',
@@ -66,8 +66,8 @@ class provider implements
      * @return string
      */
     protected static function context_join(): string {
-        return "FROM {local_zoomatt_result} r
-                JOIN {local_zoomatt_occurrence} o ON o.id = r.occurrenceid
+        return "FROM {local_zoomattendance_result} r
+                JOIN {local_zoomattendance_occ} o ON o.id = r.occurrenceid
                 JOIN {course_modules} cm ON cm.instance = o.zoomid
                 JOIN {modules} m ON m.id = cm.module AND m.name = :modname
                 JOIN {context} ctx ON ctx.instanceid = cm.id AND ctx.contextlevel = :ctxlevel";
@@ -166,7 +166,7 @@ class provider implements
             return;
         }
         $DB->delete_records_select(
-            'local_zoomatt_result',
+            'local_zoomattendance_result',
             'occurrenceid IN (' . self::occurrences_sql() . ')',
             ['modname' => 'zoom', 'cmid' => $context->instanceid]
         );
@@ -185,7 +185,7 @@ class provider implements
                 continue;
             }
             $DB->delete_records_select(
-                'local_zoomatt_result',
+                'local_zoomattendance_result',
                 'userid = :userid AND occurrenceid IN (' . self::occurrences_sql() . ')',
                 ['modname' => 'zoom', 'cmid' => $context->instanceid, 'userid' => $userid]
             );
@@ -205,7 +205,7 @@ class provider implements
         }
         [$insql, $params] = $DB->get_in_or_equal($userlist->get_userids(), SQL_PARAMS_NAMED);
         $DB->delete_records_select(
-            'local_zoomatt_result',
+            'local_zoomattendance_result',
             "userid $insql AND occurrenceid IN (" . self::occurrences_sql() . ')',
             $params + ['modname' => 'zoom', 'cmid' => $context->instanceid]
         );
@@ -218,7 +218,7 @@ class provider implements
      */
     protected static function occurrences_sql(): string {
         return "SELECT o.id
-                  FROM {local_zoomatt_occurrence} o
+                  FROM {local_zoomattendance_occ} o
                   JOIN {course_modules} cm ON cm.instance = o.zoomid
                   JOIN {modules} m ON m.id = cm.module AND m.name = :modname
                  WHERE cm.id = :cmid";
