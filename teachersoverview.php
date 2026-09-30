@@ -28,7 +28,6 @@ use local_zoomattendance\form\teacher_filter;
 use local_zoomattendance\local\settings;
 use local_zoomattendance\local\status;
 use local_zoomattendance\local\teacher_overview;
-use local_zoomattendance\local\teacher_summary;
 use local_zoomattendance\output\renderer;
 
 $mine = optional_param('mine', 0, PARAM_BOOL);
@@ -39,46 +38,55 @@ $categoryid = optional_param('category', 0, PARAM_INT);
 
 require_login();
 $systemcontext = context_system::instance();
-$capability = $mine ? 'local/zoomattendance:viewownteacher' : 'local/zoomattendance:viewteacherreports';
-if (!teacher_overview::courses((int) $USER->id, $capability)) {
-    if (!$mine && teacher_overview::courses((int) $USER->id, 'local/zoomattendance:viewownteacher')) {
-        redirect(new moodle_url('/local/zoomattendance/teachersoverview.php', ['mine' => 1]));
+$capability = $mine ? teacher_overview::MINE_CAPABILITIES : 'local/zoomattendance:viewteacherreports';
+$hascourses = teacher_overview::has_courses((int) $USER->id, $capability);
+if (!$mine && !$hascourses) {
+    if (teacher_overview::has_courses((int) $USER->id, teacher_overview::MINE_CAPABILITIES)) {
+        redirect(new moodle_url('/local/zoomattendance/teachersoverview.php', ['mine' => 1, 'fromts' => $from, 'tots' => $to]));
     }
-    throw new required_capability_exception($systemcontext, $capability, 'nopermissions', '');
+    throw new required_capability_exception($systemcontext, 'local/zoomattendance:viewteacherreports', 'nopermissions', '');
 }
 
-$url = new moodle_url('/local/zoomattendance/teachersoverview.php', $mine ? ['mine' => 1] : []);
+$params = ['fromts' => $from, 'tots' => $to] + ($mine ? ['mine' => 1] : ['category' => $categoryid]);
+$url = new moodle_url('/local/zoomattendance/teachersoverview.php', $params);
 $PAGE->set_context($systemcontext);
 $PAGE->set_url($url);
 $PAGE->set_pagelayout('report');
-$title = get_string($mine ? 'myteaching' : 'teachersoverview', 'local_zoomattendance');
+// Editing teachers' own view also lists their non-editing teachers.
+$withteacher = !$mine || teacher_overview::has_courses((int) $USER->id, 'local/zoomattendance:viewnoneditingteachers');
+$title = get_string($mine ? ($withteacher ? 'teachersmine' : 'myteachingall') : 'teachersoverview', 'local_zoomattendance');
 $PAGE->set_title($title);
 $PAGE->set_heading($title);
 
-$form = new teacher_filter($url, ['categories' => $mine ? [] : core_course_category::make_categories_list()], 'get');
+$categories = $mine ? [] : teacher_overview::categories((int) $USER->id, $capability);
+$form = new teacher_filter(
+    new moodle_url('/local/zoomattendance/teachersoverview.php'),
+    ['hidden' => ['mine' => PARAM_BOOL], 'categories' => $categories],
+    'get'
+);
 $form->set_data(['mine' => $mine, 'from' => $from, 'to' => $to, 'category' => $categoryid]);
 if ($data = $form->get_data()) {
-    $from = (int) $data->from;
-    $to = (int) $data->to;
-    $categoryid = (int) ($data->category ?? 0);
+    // Keep the filter in a plain URL so it can be bookmarked and reloaded.
+    redirect(new moodle_url($url, ['fromts' => (int) $data->from, 'tots' => (int) $data->to]
+        + ($mine ? [] : ['category' => (int) ($data->category ?? 0)])));
 }
 
-$rows = settings::teacher_tracking()
-    ? teacher_overview::rows((int) $USER->id, (bool) $mine, $from, $to + DAYSECS, $categoryid)
+$rows = settings::teacher_tracking() && $hascourses
+    ? teacher_overview::rows((int) $USER->id, (bool) $mine, $from, teacher_overview::day_end($to), $categoryid)
     : [];
 
 $columns = [];
-if (!$mine) {
+if ($withteacher) {
     $columns['teacher'] = get_string('teacher', 'local_zoomattendance');
 }
 $columns += [
     'course' => get_string('course'),
-    'expected' => get_string('sessionsexpected', 'local_zoomattendance'),
+    'expected' => get_string('classes', 'local_zoomattendance'),
     status::PRESENT => get_string('status_present', 'local_zoomattendance'),
     status::PARTIAL => get_string('status_partial', 'local_zoomattendance'),
     status::ABSENT => get_string('status_absent', 'local_zoomattendance'),
-    'notheld' => get_string('status_notheld', 'local_zoomattendance'),
-    'overall' => get_string('courseoverall', 'local_zoomattendance'),
+    'notheld' => get_string('ofwhichnotheld', 'local_zoomattendance'),
+    'overall' => get_string('teacheroverall', 'local_zoomattendance'),
     'latestarts' => get_string('latestarts', 'local_zoomattendance'),
     'earlyleaves' => get_string('earlyleaves', 'local_zoomattendance'),
     'excluded' => get_string('status_excluded', 'local_zoomattendance'),
@@ -87,20 +95,26 @@ $columns += [
 ];
 
 if ($download !== '') {
+    $filecolumns = array_slice($columns, 0, $withteacher ? 2 : 1, true) + ['category' => get_string('category')]
+        + array_slice($columns, $withteacher ? 2 : 1, null, true);
+    $categorynames = core_course_category::make_categories_list();
     $records = [];
     foreach ($rows as $row) {
-        $record = [];
-        if (!$mine) {
-            $record['teacher'] = fullname($row->user);
-        }
+        $record = $withteacher ? ['teacher' => fullname($row->user)] : [];
         $record['course'] = format_string($row->course->fullname, true, ['escape' => false]);
-        foreach (array_keys(teacher_summary::empty_stats()) as $key) {
+        $record['category'] = $categorynames[$row->course->category] ?? '';
+        foreach (array_keys(\local_zoomattendance\local\teacher_summary::empty_stats()) as $key) {
             $record[$key] = $row->stats[$key];
         }
-        $record['overall'] = renderer::overall($row->overall);
-        $records[] = array_merge(array_fill_keys(array_keys($columns), ''), $record);
+        $record['overall'] = $row->overall ? round($row->overall->percentage(), 1) : '';
+        $records[] = array_merge(array_fill_keys(array_keys($filecolumns), ''), $record);
     }
-    \core\dataformat::download_data('teacherattendance-' . userdate($from, '%Y%m%d'), $download, $columns, $records);
+    \core\dataformat::download_data(
+        'teacherattendance-' . userdate($from, '%Y%m%d') . '-' . userdate($to, '%Y%m%d'),
+        $download,
+        $filecolumns,
+        $records
+    );
     die();
 }
 
@@ -113,15 +127,20 @@ if (!settings::teacher_tracking()) {
     echo $output->footer();
     die();
 }
+if (!$hascourses) {
+    echo $output->notification(get_string('nomyteachingcourses', 'local_zoomattendance'), 'info');
+    echo $output->footer();
+    die();
+}
 $form->display();
-$thresholds = settings::teacher();
-echo html_writer::tag('p', get_string('teacherthresholdsinfo', 'local_zoomattendance', (object) [
-    'present' => $thresholds->presentpct,
-    'grace' => $thresholds->lategracemins,
-    'partial' => $thresholds->latepct,
-]));
+$range = (object) [
+    'from' => userdate($from, get_string('strftimedate', 'langconfig')),
+    'to' => userdate($to, get_string('strftimedate', 'langconfig')),
+];
+echo html_writer::tag('p', get_string('showingrange', 'local_zoomattendance', $range), ['class' => 'text-muted']);
+echo $output->teacher_legend(settings::teacher());
 if (!$rows) {
-    echo $output->notification(get_string('noteacherdata', 'local_zoomattendance'), 'info');
+    echo $output->notification(get_string('noteacherdatarange', 'local_zoomattendance', $range), 'info');
 } else {
     echo html_writer::tag('p', get_string('teachersoverview_help', 'local_zoomattendance'), ['class' => 'text-muted']);
     $table = new html_table();
@@ -129,17 +148,18 @@ if (!$rows) {
     $table->head = array_values($columns);
     foreach ($rows as $row) {
         $cells = [];
-        if (!$mine) {
+        if ($withteacher) {
             $cells[] = fullname($row->user);
         }
+        // The course page opens on the same date range.
         $cells[] = html_writer::link(
-            new moodle_url('/local/zoomattendance/teachers.php', ['id' => $row->course->id]),
+            new moodle_url('/local/zoomattendance/teachers.php', ['id' => $row->course->id, 'fromts' => $from, 'tots' => $to]),
             format_string($row->course->fullname, true, ['context' => context_course::instance($row->course->id)])
         );
         foreach (['expected', status::PRESENT, status::PARTIAL, status::ABSENT, 'notheld'] as $key) {
             $cells[] = $row->stats[$key];
         }
-        $cells[] = renderer::overall($row->overall);
+        $cells[] = html_writer::tag('strong', renderer::overall($row->overall));
         foreach (['latestarts', 'earlyleaves', 'excluded', 'excludedbyself', 'selflinked'] as $key) {
             $cells[] = $row->stats[$key];
         }
@@ -147,10 +167,10 @@ if (!$rows) {
     }
     echo html_writer::div(html_writer::table($table), 'table-responsive');
     echo $output->download_dataformat_selector(
-        get_string('download'),
+        get_string('downloadtable', 'local_zoomattendance'),
         $url->out_omit_querystring(),
         'download',
-        ['mine' => (int) $mine, 'fromts' => $from, 'tots' => $to, 'category' => $categoryid]
+        $params
     );
 }
 echo $output->footer();

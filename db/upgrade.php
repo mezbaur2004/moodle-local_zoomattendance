@@ -69,5 +69,14 @@ function xmldb_local_zoomattendance_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026100200, 'local', 'zoomattendance');
     }
 
+    if ($oldversion < 2026100202) {
+        // A teacher who joined is Partial from 10 % (was 50 %). Only a site still on the old
+        // default is moved; a threshold an admin chose is kept.
+        if (get_config('local_zoomattendance', 'teacherpartialpct') === '50') {
+            set_config('teacherpartialpct', 10, 'local_zoomattendance');
+        }
+        upgrade_plugin_savepoint(true, 2026100202, 'local', 'zoomattendance');
+    }
+
     return true;
 }

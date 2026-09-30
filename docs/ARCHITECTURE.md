@@ -761,7 +761,7 @@ Phase 2 completes D6 (manual matching) and the second half of D11 (manual window
   pointing at an enrolled user, plus the Zoom name for reference. During recompute an
   unmatched segment whose key is linked counts as that user: its intervals join the user's
   own before clipping and union, so overlapping time is not double counted. The result's
-  `matchstrength` is 3 ("Linked by teacher"). Removing a link restores the unmatched row.
+  `matchstrength` is 3 ("Linked manually"; "Linked by teacher" before 0.3.1). Removing a link restores the unmatched row.
 * **Scope and capability.** Links apply to every Zoom activity in the course, so creating or
   removing one requires `local/zoomattendance:manage` in the **course** context. Only users
   enrolled in the course can be chosen.
@@ -828,7 +828,7 @@ change per-activity settings and must not be able to change their own bar.
 | Setting | Default | Meaning |
 |---|---|---|
 | `teacherpresentpct` | 90 | Minimum % of the scheduled window for Present |
-| `teacherpartialpct` | 50 | Minimum % for Partial; below it is Absent. Must be ≤ `teacherpresentpct` |
+| `teacherpartialpct` | 10 (50 up to 0.3.0) | Minimum % for Partial; below it is Absent. Must be ≤ `teacherpresentpct` |
 | `teachergracemins` | 5 | A first join later than this after the start is Partial, not Present |
 | `teachernotheldhours` | 24 | Delay before a class with no Zoom session counts as Not held (C4) |
 
@@ -913,25 +913,33 @@ phase 3 adds the following:
 | `local/zoomattendance:betrackedteacher` | module | editingteacher, teacher | Being an expected teacher (C2) |
 | `local/zoomattendance:viewteacherreports` | course | manager | Every teacher's figures: per-course teacher page and central list. `RISK_PERSONAL` |
 | `local/zoomattendance:viewownteacher` | course | editingteacher, teacher | One's own teacher figures only |
+| `local/zoomattendance:viewnoneditingteachers` | course | editingteacher | The non-editing teachers' figures (since 0.3.1). `RISK_PERSONAL` |
 
-**Teachers never see other teachers' figures.** Today they can, and phase 3 closes that:
+**Teachers see no other teacher's figures, except that editing teachers see non-editing
+teachers.** A teacher is *editing* when they hold `moodle/course:manageactivities` in the course;
+the rule is a plain one, not Moodle's role-assignment hierarchy. Nobody without
+`viewteacherreports` sees another editing teacher. `local\teacher_access` holds the rule
+(`visible_teachers()`, `can_view()`), and every page below uses it:
 
 * **Occurrence detail and its download (B4.9):** users with `betrackedteacher` in the module
-  are left out of "Matched but not expected" for viewers without `viewteacherreports`.
-* **Another user's page (`user.php`):** opening the page of a user who holds `betrackedteacher`
-  in the course is refused unless the viewer has `viewteacherreports`, or is that user.
-* **Per-course teacher page:** a viewer with only `viewownteacher` sees their own row only.
+  are left out of "Matched but not expected" unless the viewer may see them. The viewer's own
+  row stays out too.
+* **Another user's page (`user.php`) and the profile link to it:** refused for a teacher the
+  viewer may not see.
+* **Per-course teacher page:** a viewer without `viewteacherreports` sees their own column
+  (`viewownteacher`) and the non-editing teachers' (`viewnoneditingteachers`).
 
 ## C7. Pages
 
 * **Per-course teacher page** — `teachers.php?id=<courseid>`.
-  * Rows are expected teachers. Columns are occurrences that are evaluated for teachers (with a
-    session, or Not held), grouped by activity as in the course summary. Then Course overall %.
+  * Since 0.3.1 (C12): rows are classes in date order and columns are teachers, with each
+    teacher's attendance and counts in the footer. Up to 0.3.0 rows were teachers and columns
+    were occurrences.
   * Each cell shows status and %, plus the late-start and early-leave minutes when they are not
-    zero. Not held and excluded occurrences are labelled, and excluded ones name who excluded
-    them.
-  * It has a download, and is linked from the course summary page for viewers with either
-    capability.
+    zero. Not held, excluded, awaiting and reset classes show their own badge, and excluded
+    ones name who excluded them.
+  * It has a date filter and a download, and is linked from the course summary page for
+    viewers with either capability.
 * **Central list** — `teachersoverview.php`.
   * One row per teacher and course, across every course where the viewer has
     `viewteacherreports` (`get_user_capability_course()`).
@@ -940,9 +948,10 @@ phase 3 adds the following:
   * Filters: date range (default the last 30 days) and category. It has a download.
   * Linked from *Site administration → Reports* for managers at site level, and from the
     category navigation for managers at category level.
-* **My teaching attendance** — the central list and teacher pages restricted to the viewer.
-  Linked from the user's profile for anyone holding `viewownteacher` in a course with a Zoom
-  activity.
+* **My teaching attendance** — the central list and teacher pages restricted to the viewer, and
+  to the non-editing teachers where the viewer holds `viewnoneditingteachers` (then titled
+  *Teacher attendance: my courses*, with a teacher column). Linked from the user's profile for
+  anyone holding `viewownteacher` or `viewnoneditingteachers` in a course with a Zoom activity.
 
 Evaluation is read-time, as for students. The central list evaluates every course in range,
 so on large sites the date filter bounds the work. Caching is left until it is measured.
@@ -1032,6 +1041,56 @@ so on large sites the date filter bounds the work. Caching is left until it is m
   * Upgrading 0.2.3 to 0.3.0 keeps all results, and `check_database_schema.php` reports no
     differences.
 
+## C12. 0.3.1 usability review
+
+A review on realistic mock data led to these changes. The data covered four courses in two
+categories and a subcategory, seven teachers, a site manager, a category manager and
+students. It included rejoins, two sessions for one class, a Not held class, a reset course,
+self-links and links by others, exclusions and windows, a late enrolment, and a teacher
+without Zoom courses.
+
+* **Per-course page transposed.** With six classes the old one-column-per-class table already
+  ran off the screen with no visible scrollbar. Classes now run down the page, and teachers
+  (usually few) across it.
+* **Every state has its own badge in the cell.** A Not held class used to read "Absent 0.0%",
+  with "Not held" only under the date. Awaiting and reset classes are now listed, uncounted,
+  instead of missing without explanation. The C4 design already said awaiting classes are
+  shown.
+* **A legend** (*What the statuses mean*) replaces the thresholds sentence. It uses the site's
+  teacher thresholds.
+* **The same date filter on both pages**, with a "Showing classes from … to …" line. The course
+  page ignored dates while the list used the last 30 days, so their numbers disagreed. The
+  course page defaults to its first class, because course start dates are often later than
+  the classes or unset.
+* **Bookmarkable filters.** The moodleform GET submission put a session key in the URL, so a
+  bookmarked filter silently fell back to the defaults. Submitting now redirects to a plain
+  `fromts`/`tots`/`category` URL, and the list's course links keep the range.
+* **Category filter.** It is a plain select, listing only categories that hold the viewer's
+  courses and their parents. Previously an autocomplete showed a "× All" chip and every
+  category.
+* **Wording.** The list's columns are *Classes*, *Of which not held* and *Attendance*. The
+  central list is *Teacher attendance: all courses*. The identity-link badge is *Linked
+  manually*, because managers link too. In an occurrence's detail, managers see a *Teacher*
+  badge on teachers under "Matched but not expected".
+* **Downloads.** The course CSV has one row per class and teacher, with minutes late and early
+  as numbers. The list CSV adds the category. File names carry the date range.
+* **Empty states** say what to change (a wider range, another category). A teacher without Zoom
+  courses gets a message instead of a permission error.
+* **Teacher Absent threshold.** Absent now means the teacher did not join or attended under
+  10 %. `teacherpartialpct` defaults to 10 (was 50). The upgrade moves a site still on 50 and
+  keeps any other value. A teacher who joined 20 minutes late and stayed 25 minutes (42 %) had
+  read as "Absent", which managers take to mean "never showed up".
+* **Bugs fixed.**
+  * The *Self-linked* flag was set whenever the teacher had ever self-linked and had any
+    manually linked time in the class, even time linked by someone else. It now checks that
+    one of the teacher's self-linked identities has Zoom time inside that class.
+  * The profile offered *My teaching attendance* to teachers whose courses have no Zoom
+    activity, which led to a permission error.
+  * The end of the "To" day is the next local midnight, correct across daylight saving
+    changes.
+  * Grey badges had white text on light grey.
+  * Occurrence times mixed 24- and 12-hour formats.
+
 ---
 
 ## Decisions
@@ -1058,9 +1117,9 @@ All open questions were resolved by adopting the proposed defaults.
 | **D16** | Retention | Results always mirror the mod_zoom source; they are removed when the source rows go. |
 | **D17** | Teacher tracking | Capability `betrackedteacher` for editingteacher and teacher; enrolled teachers only; site switch `teachertracking`, default off (C2). |
 | **D18** | Several teachers | Every expected teacher is expected at every occurrence; no responsible-teacher setting (C2). |
-| **D19** | Teacher status | Site-level thresholds only: Present ≥ 90 %, Partial ≥ 50 %, grace 5 min, all configurable; always against the scheduled window; late-start and early-leave minutes shown (C3). |
+| **D19** | Teacher status | Site-level thresholds only: Present ≥ 90 %, Partial ≥ 10 % (50 % up to 0.3.0), grace 5 min, all configurable; always against the scheduled window; late-start and early-leave minutes shown (C3). |
 | **D20** | Classes not held | Count as Absent for expected teachers once mod_zoom's report watermark is 24 h (configurable) past the end, and only for scheduled occurrences ending after teacher tracking was switched on. Students unaffected (C4). |
-| **D21** | Visibility | Managers see all teachers (`viewteacherreports`); each teacher sees only their own figures (`viewownteacher`); teachers are hidden from other teachers in existing reports (C6). |
+| **D21** | Visibility | Managers see all teachers (`viewteacherreports`); each teacher sees their own figures (`viewownteacher`); editing teachers also see non-editing teachers (`viewnoneditingteachers`, plain rule); other teachers are hidden in existing reports (C6). |
 | **D22** | Integrity | While teacher tracking is on, every activity is synced; exclusions, windows and identity links record who made them, are logged, and are shown to managers; self-links are flagged (C5). |
 | **D23** | Teacher course overall | Weighted percentage only, no overall status, as for students (C3). |
 | **D24** | Host detection | Deferred until verified against real Zoom data (C10). |

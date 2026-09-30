@@ -42,8 +42,11 @@ require_capability('local/zoomattendance:viewreports', $context);
 $canmanage = has_capability('local/zoomattendance:manage', $context);
 // Identity links apply to every Zoom activity in the course, so they need the course-level capability.
 $canlink = has_capability('local/zoomattendance:manage', context_course::instance($course->id));
-// Teachers must not see other teachers' Zoom times.
-$hideteachers = !has_capability('local/zoomattendance:viewteacherreports', context_course::instance($course->id));
+// Teachers must not see other teachers' Zoom times, apart from editing teachers seeing non-editing ones.
+$visibleteachers = \local_zoomattendance\local\teacher_access::visible_teachers(context_course::instance($course->id));
+$hideteachers = $visibleteachers !== null;
+// A teacher's own time is not shown here (see the teacher attendance page).
+$keepteachers = $hideteachers ? array_diff($visibleteachers, [(int) $USER->id]) : [];
 
 $baseurl = new moodle_url('/local/zoomattendance/report.php', ['id' => $cm->id]);
 $url = $occurrenceid ? new moodle_url($baseurl, ['occurrence' => $occurrenceid]) : $baseurl;
@@ -90,7 +93,7 @@ if ($occurrenceid && !$masked && !$nogroupaccess) {
     $results = $attendance->get_results([$occurrenceid])[$occurrenceid] ?? [];
     $evaluation = $attendance->evaluate($occurrence, $candidates, $results, $groupid);
     if ($hideteachers) {
-        $evaluation->notexpected = $attendance->without_teachers($evaluation->notexpected);
+        $evaluation->notexpected = $attendance->without_teachers($evaluation->notexpected, $keepteachers);
     }
 
     if ($download !== '') {
@@ -202,7 +205,7 @@ if ($nogroupaccess) {
         foreach ($occurrences as $occurrence) {
             $evaluation = $attendance->evaluate($occurrence, $candidates, $results[$occurrence->id] ?? [], $groupid);
             if ($hideteachers) {
-                $evaluation->notexpected = $attendance->without_teachers($evaluation->notexpected);
+                $evaluation->notexpected = $attendance->without_teachers($evaluation->notexpected, $keepteachers);
             }
             $evaluations[$occurrence->id] = $evaluation;
         }

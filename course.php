@@ -100,7 +100,7 @@ if ($masked) {
 }
 if (
     \local_zoomattendance\local\settings::teacher_tracking()
-        && has_any_capability(['local/zoomattendance:viewteacherreports', 'local/zoomattendance:viewownteacher'], $context)
+        && \local_zoomattendance\local\teacher_access::can_view_any($context)
 ) {
     echo html_writer::tag('p', html_writer::link(
         new moodle_url('/local/zoomattendance/teachers.php', ['id' => $course->id]),

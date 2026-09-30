@@ -92,7 +92,7 @@ final class teacher_attendance_test extends \advanced_testcase {
         $settings = settings::teacher();
         $this->assertTrue($settings->enabled);
         $this->assertSame(90, $settings->presentpct);
-        $this->assertSame(50, $settings->latepct);
+        $this->assertSame(10, $settings->latepct);
         $this->assertSame(5, $settings->lategracemins);
         $this->assertSame(settings::DENOMINATOR_SCHEDULED, $settings->denominator);
         $this->assertSame(DAYSECS, settings::teacher_notheld_delay());
@@ -245,7 +245,7 @@ final class teacher_attendance_test extends \advanced_testcase {
         $this->assertSame((int) $teacher->id, (int) $summary->excludedby[$occurrence->id]->id);
 
         // A teacher's own view holds only their row; the date range limits the columns.
-        $mine = teacher_summary::build($this->course, (int) $teacher->id);
+        $mine = teacher_summary::build($this->course, [(int) $teacher->id]);
         $this->assertEquals([$teacher->id], array_keys($mine->users));
         $range = teacher_summary::build($this->course, null, $this->mins(12 * 60), $this->mins(36 * 60));
         $this->assertCount(1, $range->activities);
@@ -287,5 +287,89 @@ final class teacher_attendance_test extends \advanced_testcase {
         );
         $this->assertEqualsCanonicalizing([$teacher->id, $guest->id], array_keys($evaluation->notexpected));
         $this->assertEquals([$guest->id], array_keys($attendance->without_teachers($evaluation->notexpected)));
+        $this->assertTrue($attendance->is_teacher((int) $teacher->id));
+        $this->assertFalse($attendance->is_teacher((int) $guest->id));
+    }
+
+    public function test_self_link_flag_needs_the_teachers_own_link_in_that_class(): void {
+        $dg = $this->getDataGenerator();
+        $teacher = $dg->create_and_enrol($this->course, 'editingteacher');
+        $colleague = $dg->create_and_enrol($this->course, 'editingteacher');
+        // Class 1: the teacher's tablet, which they link to themself.
+        $first = $this->create_class();
+        $session = $this->generator->create_session($first, $this->mins(0), $this->mins(60));
+        $this->generator->create_participant($session, $this->mins(0), $this->mins(60), ['name' => 'Tablet',
+            'user_email' => 'tablet@example.org']);
+        // Class 2: the teacher's phone, which a colleague links to them.
+        $second = $this->create_class(24 * 60);
+        $session = $this->generator->create_session($second, $this->mins(24 * 60), $this->mins(25 * 60));
+        $this->generator->create_participant($session, $this->mins(24 * 60), $this->mins(25 * 60), ['name' => 'Phone',
+            'user_email' => 'phone@example.org']);
+        sync::sync_all();
+
+        $this->setUser($teacher);
+        manual::link_identity((int) $this->course->id, 'z:' . sha1('e:tablet@example.org'), (int) $teacher->id, 'Tablet');
+        $this->setUser($colleague);
+        manual::link_identity((int) $this->course->id, 'z:' . sha1('e:phone@example.org'), (int) $teacher->id, 'Phone');
+
+        $summary = teacher_summary::build($this->course);
+        $firstid = array_key_first($summary->activities[$first->id]->columns);
+        $secondid = array_key_first($summary->activities[$second->id]->columns);
+        $this->assertTrue($summary->cells[$teacher->id][$secondid]->manualmatch);
+        $this->assertArrayHasKey($firstid, $summary->selflinked[$teacher->id]);
+        $this->assertArrayNotHasKey($secondid, $summary->selflinked[$teacher->id]);
+        $this->assertSame(1, $summary->stats[$teacher->id]['selflinked']);
+    }
+
+    public function test_awaiting_and_reset_classes_are_listed_but_not_counted(): void {
+        global $DB;
+        $teacher = $this->getDataGenerator()->create_and_enrol($this->course, 'editingteacher');
+        $held = $this->create_class(24 * 60);
+        $session = $this->generator->create_session($held, $this->mins(24 * 60), $this->mins(25 * 60));
+        $this->generator->create_participant($session, $this->mins(24 * 60), $this->mins(25 * 60), ['userid' => $teacher->id]);
+        $awaiting = $this->create_class();
+        $reset = $this->create_class(2 * 24 * 60);
+        $upcoming = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => time() + DAYSECS,
+            'duration' => HOURSECS]);
+        sync::sync_all();
+        // The report watermark is not far enough past the first class yet.
+        set_config('last_call_made_at', $this->mins(90), 'zoom');
+        $DB->set_field('local_zoomattendance_occ', 'status', sync::STATUS_RESET, ['zoomid' => $reset->instance]);
+
+        $summary = teacher_summary::build($this->course);
+        $states = array_map(function ($class) {
+            return $class->cm->id . ':' . $class->state;
+        }, $summary->classes);
+        // In date order; the upcoming class is not listed.
+        $this->assertSame([
+            $awaiting->id . ':' . teacher_attendance::STATE_AWAITING,
+            $held->id . ':' . attendance::STATE_EVALUATED,
+            $reset->id . ':' . attendance::STATE_RESET,
+        ], $states);
+        $this->assertArrayNotHasKey($upcoming->id, $summary->activities);
+        $this->assertSame(1, $summary->stats[$teacher->id]['expected']);
+        $this->assertSame(1, $summary->stats[$teacher->id][status::PRESENT]);
+        $this->assertEqualsWithDelta(100.0, $summary->overall[$teacher->id]->percentage(), 0.01);
+    }
+
+    public function test_absent_means_did_not_join_or_under_ten_percent(): void {
+        $dg = $this->getDataGenerator();
+        $under = $dg->create_and_enrol($this->course, 'editingteacher');
+        $atten = $dg->create_and_enrol($this->course, 'editingteacher');
+        $latelow = $dg->create_and_enrol($this->course, 'editingteacher');
+        $never = $dg->create_and_enrol($this->course, 'editingteacher');
+        $cm = $this->create_class();
+        $session = $this->generator->create_session($cm, $this->mins(0), $this->mins(60));
+        $this->generator->create_participant($session, $this->mins(0), $this->mins(5), ['userid' => $under->id]);
+        $this->generator->create_participant($session, $this->mins(0), $this->mins(6), ['userid' => $atten->id]);
+        $this->generator->create_participant($session, $this->mins(20), $this->mins(45), ['userid' => $latelow->id]);
+        sync::sync_all();
+
+        $rows = $this->evaluate_first($cm)->rows;
+        $this->assertSame(status::ABSENT, $rows[$under->id]->status);
+        $this->assertSame(status::PARTIAL, $rows[$atten->id]->status);
+        // Joined 20 minutes late and stayed 25 minutes: joined, so Partial rather than Absent.
+        $this->assertSame(status::PARTIAL, $rows[$latelow->id]->status);
+        $this->assertSame(status::ABSENT, $rows[$never->id]->status);
     }
 }

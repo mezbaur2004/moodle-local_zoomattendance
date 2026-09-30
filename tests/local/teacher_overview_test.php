@@ -74,4 +74,53 @@ final class teacher_overview_test extends \advanced_testcase {
         // The date range limits the rows.
         $this->assertSame([], teacher_overview::rows((int) $manager->id, false, $start + 1, time()));
     }
+
+    public function test_helpers(): void {
+        global $DB;
+        $this->resetAfterTest();
+        set_config('teachertracking', 1, 'local_zoomattendance');
+        set_config('teachertrackingsince', 1, 'local_zoomattendance');
+        $dg = $this->getDataGenerator();
+        $generator = $dg->get_plugin_generator('local_zoomattendance');
+        $parent = $dg->create_category(['name' => 'Science']);
+        $child = $dg->create_category(['name' => 'Biology', 'parent' => $parent->id]);
+        $other = $dg->create_category(['name' => 'Arts']);
+        $withzoom = $dg->create_course(['category' => $child->id]);
+        $nozoom = $dg->create_course(['category' => $other->id]);
+        $teacher = $dg->create_and_enrol($withzoom, 'editingteacher');
+        $artteacher = $dg->create_and_enrol($nozoom, 'editingteacher');
+        $this->assertNull(teacher_overview::first_class((int) $withzoom->id));
+        $start = time() - 3 * DAYSECS;
+        $cm = $generator->create_zoom(['course' => $withzoom->id, 'start_time' => $start, 'duration' => HOURSECS]);
+        sync::sync_all();
+
+        // A teacher only in a course without Zoom has nothing to see (and gets no profile link).
+        $this->assertTrue(teacher_overview::has_courses((int) $teacher->id, 'local/zoomattendance:viewownteacher'));
+        $this->assertFalse(teacher_overview::has_courses((int) $artteacher->id, 'local/zoomattendance:viewownteacher'));
+        $this->assertSame($start, teacher_overview::first_class((int) $withzoom->id));
+
+        // The category filter offers the viewer's categories and their parents only.
+        $manager = $dg->create_user();
+        role_assign(
+            $DB->get_field('role', 'id', ['shortname' => 'manager']),
+            $manager->id,
+            \context_coursecat::instance($parent->id)->id
+        );
+        $categories = teacher_overview::categories((int) $manager->id, 'local/zoomattendance:viewteacherreports');
+        $this->assertEquals([$parent->id, $child->id], array_keys($categories));
+
+        // A teacher whose classes in range are all reset has no row.
+        $DB->set_field('local_zoomattendance_occ', 'status', sync::STATUS_RESET, ['zoomid' => $cm->instance]);
+        $this->assertSame([], teacher_overview::rows((int) $manager->id, false, 0, time()));
+    }
+
+    public function test_day_end_across_daylight_saving(): void {
+        $this->resetAfterTest();
+        $this->setTimezone('Europe/London');
+        // 25 October 2026 has 25 hours in London.
+        $day = make_timestamp(2026, 10, 25);
+        $this->assertSame(make_timestamp(2026, 10, 26), teacher_overview::day_end($day));
+        $this->assertSame(make_timestamp(2026, 3, 30), teacher_overview::day_end(make_timestamp(2026, 3, 29)));
+        $this->assertSame(make_timestamp(2026, 7, 2), teacher_overview::day_end(make_timestamp(2026, 7, 1)));
+    }
 }

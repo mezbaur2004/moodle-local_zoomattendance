@@ -141,7 +141,7 @@ class settings {
         $settings = new self();
         $settings->enabled = !empty($config->teachertracking);
         $settings->presentpct = isset($config->teacherpresentpct) ? (int) $config->teacherpresentpct : 90;
-        $settings->latepct = isset($config->teacherpartialpct) ? (int) $config->teacherpartialpct : 50;
+        $settings->latepct = isset($config->teacherpartialpct) ? (int) $config->teacherpartialpct : 10;
         $settings->lategracemins = isset($config->teachergracemins) ? (int) $config->teachergracemins : 5;
         $settings->denominator = self::DENOMINATOR_SCHEDULED;
         $settings->normalise();

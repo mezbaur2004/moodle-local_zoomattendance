@@ -80,6 +80,7 @@ verified behaviour of mod_zoom it relies on.
 | `local/zoomattendance:betrackedteacher` | teacher, editing teacher | Being an expected teacher (teacher attendance) |
 | `local/zoomattendance:viewteacherreports` | manager | Every teacher's attendance |
 | `local/zoomattendance:viewownteacher` | teacher, editing teacher | Own teacher attendance |
+| `local/zoomattendance:viewnoneditingteachers` | editing teacher | Non-editing teachers' attendance |
 
 ## Correcting attendance
 
@@ -89,7 +90,7 @@ automatic matching cannot:
 - **Unmatched participants.** In an occurrence's detail, *Link to user* next to an unmatched
   Zoom participant (for example "iPhone" or a personal email) links that Zoom identity to an
   enrolled user. The link applies to every Zoom activity in the course, past and future. The
-  participant's time merges with the user's own, and the user is marked *Linked by teacher*.
+  participant's time merges with the user's own, and the user is marked *Linked manually*.
   *Zoom identity links*, at the bottom of the activity report, lists the course's links and
   can remove them.
 - **Inferred windows.** For occurrences inferred from sessions (meetings without a fixed time),
@@ -113,7 +114,7 @@ Zoom classes.
   non-editing teachers by default). Every teacher is expected at every class of every Zoom
   activity in their course.
 - **Thresholds:** site-level only, so teachers cannot change their own bar. Present from 90 %
-  of the scheduled time when joined within 5 minutes, partial from 50 %, otherwise absent. All
+  of the scheduled time when joined within 5 minutes, partial from 10 %, otherwise absent (did not join, or under 10 %). All
   three are configurable. Teachers are always measured against the scheduled time.
 - **Late starts and early leaves:** each cell shows how many minutes late the teacher joined
   and how many minutes early they left.
@@ -128,14 +129,22 @@ Zoom classes.
   flagged.
 
 **Pages:**
-- *Teacher attendance*, linked from the course's Zoom attendance page: one row per teacher and
-  one column per class.
-- *Teacher Zoom attendance*, under *Site administration > Reports* and in the category menu:
-  one row per teacher and course, with a date range and category filter.
+- *Teacher attendance*, linked from the course's Zoom attendance page: one row per class, in
+  date order, and one column per teacher, with each teacher's attendance and counts at the
+  bottom. A date filter defaults to the course's first class. The download has one row per
+  class and teacher.
+- *Teacher attendance: all courses*, under *Site administration > Reports* and in the category
+  menu: one row per teacher and course, with a date range (default the last 30 days) and a
+  category filter. Filtered pages can be bookmarked.
 - *My teaching attendance*, on a teacher's own profile.
 
-Managers see every teacher. A teacher sees only their own figures, and other teachers are
-hidden from them in the existing reports too.
+Each page has a *What the statuses mean* legend. Besides Present, Partial and Absent, a class
+can show *Not held* (counts as absent), *Excluded*, *Awaiting Zoom report* or *Zoom data reset*
+(none of these three counts).
+
+Managers see every teacher. Editing teachers see their own figures and the non-editing
+teachers' in their courses, but not other editing teachers. Non-editing teachers see only their
+own figures. Teachers they may not see are hidden from them in the existing reports too.
 
 This is staff monitoring: inform teachers, and check local employment and data-protection
 rules, before using the figures for evaluation.
