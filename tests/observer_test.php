@@ -106,4 +106,48 @@ final class observer_test extends \advanced_testcase {
         $this->assertSame(0, $DB->count_records('local_zoomattendance_result'));
         $this->assertSame(0, $DB->count_records('local_zoomattendance_idmap'));
     }
+
+    public function test_zoom_reset_marks_past_occurrences(): void {
+        global $DB, $CFG;
+        $this->resetAfterTest();
+        require_once($CFG->dirroot . '/course/lib.php');
+        [$course, $cm] = $this->setup_activity();
+        $future = $this->getDataGenerator()->get_plugin_generator('local_zoomattendance')->create_zoom([
+            'course' => $course->id, 'start_time' => time() + DAYSECS, 'duration' => HOURSECS]);
+        sync::sync_all();
+        $this->assertSame(2, $DB->count_records('local_zoomattendance_occ'));
+
+        // Without the Zoom data reset, occurrences stay.
+        reset_course_userdata((object) ['id' => $course->id, 'reset_start_date_old' => $course->startdate]);
+        $this->assertSame(2, $DB->count_records('local_zoomattendance_occ'));
+
+        // Past occurrences lost their sessions and would count as not held for teachers. The sync
+        // recreates scheduled occurrences, so they are marked instead of deleted.
+        set_config('teachertracking', 1, 'local_zoomattendance');
+        set_config('teachertrackingsince', 1, 'local_zoomattendance');
+        set_config('last_call_made_at', time(), 'zoom');
+        $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        reset_course_userdata((object) ['id' => $course->id, 'reset_zoom_all' => 1,
+            'reset_start_date_old' => $course->startdate]);
+        sync::sync_all();
+        $statuses = $DB->get_records_menu('local_zoomattendance_occ', null, '', 'zoomid, status');
+        $this->assertEquals([$cm->instance => sync::STATUS_RESET, $future->instance => sync::STATUS_ACTIVE], $statuses);
+        $this->assertSame(0, $DB->count_records('local_zoomattendance_result'));
+        $this->assertArrayNotHasKey($teacher->id, \local_zoomattendance\local\teacher_summary::build($course)->stats);
+    }
+
+    public function test_user_deleted_keeps_their_changes_anonymously(): void {
+        global $DB;
+        $this->resetAfterTest();
+        [$course, $cm, $user] = $this->setup_activity();
+        $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        $DB->set_field('local_zoomattendance_occ', 'usermodified', $teacher->id, []);
+        $DB->insert_record('local_zoomattendance_idmap', (object) ['courseid' => $course->id,
+            'identitykey' => 'z:' . sha1('x'), 'userid' => $user->id, 'usermodified' => $teacher->id,
+            'timecreated' => time()]);
+        delete_user($teacher);
+        $this->assertSame(0, $DB->count_records_select('local_zoomattendance_occ', 'usermodified <> 0'));
+        $this->assertSame(1, $DB->count_records('local_zoomattendance_idmap', ['usermodified' => 0]));
+        $this->assertSame(1, $DB->count_records('local_zoomattendance_occ', ['zoomid' => $cm->instance]));
+    }
 }

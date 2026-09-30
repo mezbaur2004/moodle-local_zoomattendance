@@ -61,12 +61,16 @@ class observer {
         global $DB;
         $DB->delete_records('local_zoomattendance_result', ['userid' => $event->objectid]);
         $DB->delete_records('local_zoomattendance_idmap', ['userid' => $event->objectid]);
+        // Changes the user made stay, without naming them.
+        $DB->set_field('local_zoomattendance_occ', 'usermodified', 0, ['usermodified' => $event->objectid]);
+        $DB->set_field('local_zoomattendance_idmap', 'usermodified', 0, ['usermodified' => $event->objectid]);
     }
 
     /**
      * A course was reset. mod_zoom's reset may have deleted participant rows, so re-sync the
      * course's activities; results always mirror the mod_zoom data. When the Zoom data was
-     * reset, the teacher's identity links go too: they are user data tied to that data.
+     * reset, the teacher's identity links go too: they are user data tied to that data, and
+     * past occurrences are marked as reset so they never count as not held for teachers.
      *
      * @param \core\event\course_reset_ended $event
      */
@@ -74,6 +78,19 @@ class observer {
         global $DB;
         if (!empty($event->other['reset_options']['reset_zoom_all'])) {
             $DB->delete_records('local_zoomattendance_idmap', ['courseid' => $event->courseid]);
+            // Past occurrences lost their sessions. Deleting them would not help: the sync
+            // recreates scheduled ones. Mark them so they are never counted, not even as not held.
+            $zoomids = $DB->get_fieldset_select('zoom', 'id', 'course = :courseid', ['courseid' => $event->courseid]);
+            if ($zoomids) {
+                [$insql, $params] = $DB->get_in_or_equal($zoomids, SQL_PARAMS_NAMED);
+                $now = time();
+                $DB->execute(
+                    "UPDATE {local_zoomattendance_occ}
+                        SET status = :reset, usermodified = 0, timemodified = :now
+                      WHERE zoomid $insql AND timeend <= :cutoff",
+                    $params + ['reset' => sync::STATUS_RESET, 'now' => $now, 'cutoff' => $now]
+                );
+            }
         }
         try {
             sync::resync_course((int) $event->courseid);

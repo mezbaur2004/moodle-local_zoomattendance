@@ -108,15 +108,36 @@ function local_zoomattendance_extend_navigation_course(navigation_node $navigati
  */
 function local_zoomattendance_myprofile_navigation(core_user\output\myprofile\tree $tree, $user, $iscurrentuser, $course) {
     global $DB;
+    $added = false;
+    if (
+        $iscurrentuser && \local_zoomattendance\local\settings::teacher_tracking()
+            && get_user_capability_course('local/zoomattendance:viewownteacher', $user->id, true, '', '', 1)
+    ) {
+        $tree->add_node(new core_user\output\myprofile\node(
+            'reports',
+            'local_zoomattendance_teaching',
+            get_string('myteaching', 'local_zoomattendance'),
+            null,
+            new moodle_url('/local/zoomattendance/teachersoverview.php', ['mine' => 1])
+        ));
+        $added = true;
+    }
     if (empty($course) || $course->id == SITEID || !$DB->record_exists('zoom', ['course' => $course->id])) {
-        return false;
+        return $added;
     }
     $context = context_course::instance($course->id);
     if (
         !has_capability('local/zoomattendance:viewreports', $context)
             && !($iscurrentuser && has_capability('local/zoomattendance:viewown', $context))
     ) {
-        return false;
+        return $added;
+    }
+    // Teachers must not see other teachers' Zoom times (user.php refuses them too).
+    if (
+        !$iscurrentuser && has_capability('local/zoomattendance:betrackedteacher', $context, $user->id)
+            && !has_capability('local/zoomattendance:viewteacherreports', $context)
+    ) {
+        return $added;
     }
     $url = new moodle_url('/local/zoomattendance/user.php', ['course' => $course->id, 'user' => $user->id]);
     $tree->add_node(new core_user\output\myprofile\node(
@@ -127,4 +148,27 @@ function local_zoomattendance_myprofile_navigation(core_user\output\myprofile\tr
         $url
     ));
     return true;
+}
+
+/**
+ * Add the teacher attendance list to a category's navigation.
+ *
+ * @param navigation_node $parentnode
+ * @param context_coursecat $context
+ */
+function local_zoomattendance_extend_navigation_category_settings(navigation_node $parentnode, context_coursecat $context) {
+    if (
+        !\local_zoomattendance\local\settings::teacher_tracking()
+            || !has_capability('local/zoomattendance:viewteacherreports', $context)
+    ) {
+        return;
+    }
+    $parentnode->add(
+        get_string('teachersoverview', 'local_zoomattendance'),
+        new moodle_url('/local/zoomattendance/teachersoverview.php', ['category' => $context->instanceid]),
+        navigation_node::TYPE_SETTING,
+        null,
+        'local_zoomattendance_teachers',
+        new pix_icon('i/report', '')
+    );
 }

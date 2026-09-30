@@ -53,5 +53,21 @@ function xmldb_local_zoomattendance_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026100100, 'local', 'zoomattendance');
     }
 
+    if ($oldversion < 2026100200) {
+        // Record who excluded, included or set the window of an occurrence, and who made each identity link.
+        $field = new xmldb_field('usermodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'timemodified');
+        $table = new xmldb_table('local_zoomattendance_occ');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $field = new xmldb_field('usermodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'timecreated');
+        $table = new xmldb_table('local_zoomattendance_idmap');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_plugin_savepoint(true, 2026100200, 'local', 'zoomattendance');
+    }
+
     return true;
 }

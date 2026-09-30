@@ -77,6 +77,9 @@ verified behaviour of mod_zoom it relies on.
 | `local/zoomattendance:viewown` | student, teacher, editing teacher | Own attendance |
 | `local/zoomattendance:betracked` | student | Being an expected participant |
 | `local/zoomattendance:manage` | editing teacher, manager | Per-activity settings, exclude occurrences, recompute |
+| `local/zoomattendance:betrackedteacher` | teacher, editing teacher | Being an expected teacher (teacher attendance) |
+| `local/zoomattendance:viewteacherreports` | manager | Every teacher's attendance |
+| `local/zoomattendance:viewownteacher` | teacher, editing teacher | Own teacher attendance |
 
 ## Correcting attendance
 
@@ -96,6 +99,46 @@ automatic matching cannot:
 
 Both changes recompute attendance immediately. If a sync is running at that moment, they
 apply on the next hourly sync.
+
+Each change, and excluding an occurrence, records who made it and is written to the Moodle
+logs, because it can also change teacher attendance.
+
+## Teacher attendance
+
+Off by default. Switch on *Track teacher attendance* in the plugin settings, under
+*Teacher attendance*, to evaluate teachers on how accurately they attend their own scheduled
+Zoom classes.
+
+- **Who:** users enrolled in the course with *Be expected as a teacher* (editing and
+  non-editing teachers by default). Every teacher is expected at every class of every Zoom
+  activity in their course.
+- **Thresholds:** site-level only, so teachers cannot change their own bar. Present from 90 %
+  of the scheduled time when joined within 5 minutes, partial from 50 %, otherwise absent. All
+  three are configurable. Teachers are always measured against the scheduled time.
+- **Late starts and early leaves:** each cell shows how many minutes late the teacher joined
+  and how many minutes early they left.
+- **Classes that were not held** count as absent for their teachers once the Zoom plugin has
+  fetched meeting reports at least 24 hours (configurable) past the class. If the Zoom
+  plugin's report task is failing, nothing is marked not held. Only classes with a fixed
+  schedule can be detected, and never classes from before teacher tracking was switched on.
+  Students are not affected.
+- **Integrity:** while teacher tracking is on, every Zoom activity is synced, even where
+  attendance tracking is turned off for it. Managers see who excluded an occurrence, and
+  classes where a teacher's time includes a Zoom participant they linked to themself are
+  flagged.
+
+**Pages:**
+- *Teacher attendance*, linked from the course's Zoom attendance page: one row per teacher and
+  one column per class.
+- *Teacher Zoom attendance*, under *Site administration > Reports* and in the category menu:
+  one row per teacher and course, with a date range and category filter.
+- *My teaching attendance*, on a teacher's own profile.
+
+Managers see every teacher. A teacher sees only their own figures, and other teachers are
+hidden from them in the existing reports too.
+
+This is staff monitoring: inform teachers, and check local employment and data-protection
+rules, before using the figures for evaluation.
 
 ## Development
 

@@ -47,6 +47,13 @@ if ($ownview) {
     if (!groups_user_groups_visible($course, $userid)) {
         throw new required_capability_exception($coursecontext, 'moodle/site:accessallgroups', 'nopermissions', '');
     }
+    // Teachers must not see other teachers' Zoom times.
+    if (
+        has_capability('local/zoomattendance:betrackedteacher', $coursecontext, $userid)
+            && !has_capability('local/zoomattendance:viewteacherreports', $coursecontext)
+    ) {
+        throw new required_capability_exception($coursecontext, 'local/zoomattendance:viewteacherreports', 'nopermissions', '');
+    }
 }
 $user = core_user::get_user($userid, '*', MUST_EXIST);
 

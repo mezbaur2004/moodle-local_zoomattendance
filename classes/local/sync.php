@@ -52,6 +52,8 @@ class sync {
     public const STATUS_CANCELLED = 1;
     /** @var int A teacher excluded the occurrence. */
     public const STATUS_EXCLUDED = 2;
+    /** @var int The course's Zoom data was reset after the occurrence; it is not counted. */
+    public const STATUS_RESET = 3;
 
     /** @var string Key of the only occurrence of a non-recurring meeting. */
     public const KEY_SINGLE = 'single';
@@ -59,13 +61,17 @@ class sync {
     /**
      * Sync every enabled instance, then remove data whose activity no longer exists.
      *
+     * While teacher attendance is tracked every instance is synced, whatever its per-activity
+     * switch says, so a teacher cannot hide a missed class by switching tracking off.
+     *
      * @param int|null $courseid Limit to one course.
      * @return int Number of instances synced.
      */
     public static function sync_all(?int $courseid = null): int {
         $count = 0;
+        $all = settings::teacher_tracking();
         foreach (zoom_source::get_instances($courseid) as $instance) {
-            if (!settings::from_override(zoom_source::override_from_instance($instance))->enabled) {
+            if (!$all && !settings::from_override(zoom_source::override_from_instance($instance))->enabled) {
                 continue;
             }
             try {
@@ -81,15 +87,16 @@ class sync {
     }
 
     /**
-     * Recompute every activity of a course that is enabled or already has data. Used after a
+     * Recompute every activity of a course that is synced or already has data. Used after a
      * change that affects all of them, such as a new identity link or a course reset.
      *
      * @param int $courseid
      */
     public static function resync_course(int $courseid): void {
         global $DB;
+        $all = settings::teacher_tracking();
         foreach (zoom_source::get_instances($courseid) as $instance) {
-            $enabled = settings::from_override(zoom_source::override_from_instance($instance))->enabled;
+            $enabled = $all || settings::from_override(zoom_source::override_from_instance($instance))->enabled;
             if (!$enabled && !$DB->record_exists('local_zoomattendance_occ', ['zoomid' => $instance->id])) {
                 continue;
             }

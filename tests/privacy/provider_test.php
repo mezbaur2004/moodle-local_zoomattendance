@@ -113,6 +113,75 @@ final class provider_test extends \core_privacy\tests\provider_testcase {
         $this->assertSame(0, $DB->count_records('local_zoomattendance_idmap'));
     }
 
+    public function test_changes_made_are_exported_and_anonymised(): void {
+        global $DB;
+        $teacher = $this->getDataGenerator()->create_and_enrol($this->course, 'editingteacher');
+        $context = \context_module::instance($this->cm->id);
+        $coursecontext = \context_course::instance($this->course->id);
+        $DB->set_field('local_zoomattendance_occ', 'usermodified', $teacher->id, []);
+        $DB->set_field('local_zoomattendance_occ', 'status', sync::STATUS_EXCLUDED, []);
+        $DB->insert_record('local_zoomattendance_idmap', (object) ['courseid' => $this->course->id,
+            'identitykey' => 'z:' . sha1('e:phone@example.org'), 'userid' => $teacher->id,
+            'usermodified' => $teacher->id, 'displayname' => 'Phone', 'timecreated' => time()]);
+
+        $contextids = array_map('intval', provider::get_contexts_for_userid($teacher->id)->get_contextids());
+        $this->assertContains((int) $context->id, $contextids);
+        $this->assertContains((int) $coursecontext->id, $contextids);
+        $userlist = new userlist($context, 'local_zoomattendance');
+        provider::get_users_in_context($userlist);
+        $this->assertContains((int) $teacher->id, array_map('intval', $userlist->get_userids()));
+
+        $this->export_context_data_for_user($teacher->id, $context, 'local_zoomattendance');
+        $data = writer::with_context($context)->get_data([get_string('pluginname', 'local_zoomattendance'),
+            get_string('changesmade', 'local_zoomattendance')]);
+        $this->assertCount(1, $data->occurrences);
+        $this->assertSame(get_string('yes'), $data->occurrences[0]->excluded);
+        $this->export_context_data_for_user($teacher->id, $coursecontext, 'local_zoomattendance');
+        $data = writer::with_context($coursecontext)->get_data([get_string('pluginname', 'local_zoomattendance'),
+            get_string('linksmade', 'local_zoomattendance')]);
+        $this->assertSame('Phone', $data->links[0]->zoomname);
+
+        provider::delete_data_for_user(new approved_contextlist($teacher, 'local_zoomattendance', [$context->id]));
+        $this->assertSame(0, $DB->count_records_select('local_zoomattendance_occ', 'usermodified <> 0'));
+        $this->assertSame(1, $DB->count_records('local_zoomattendance_occ'));
+        provider::delete_data_for_users(new approved_userlist($coursecontext, 'local_zoomattendance', [$teacher->id]));
+        $this->assertSame(0, $DB->count_records('local_zoomattendance_idmap'));
+    }
+
+    public function test_teacher_status_is_exported_for_tracked_teachers(): void {
+        set_config('teachertracking', 1, 'local_zoomattendance');
+        $teacher = $this->getDataGenerator()->create_and_enrol($this->course, 'editingteacher');
+        $start = (int) $this->occurrence_start();
+        $session = $this->getDataGenerator()->get_plugin_generator('local_zoomattendance')->create_session(
+            $this->cm,
+            $start,
+            $start + HOURSECS
+        );
+        $this->getDataGenerator()->get_plugin_generator('local_zoomattendance')->create_participant(
+            $session,
+            $start,
+            $start + 48 * MINSECS,
+            ['userid' => $teacher->id]
+        );
+        sync::sync_all();
+        $context = \context_module::instance($this->cm->id);
+        $this->export_context_data_for_user($teacher->id, $context, 'local_zoomattendance');
+        $data = writer::with_context($context)->get_data([get_string('pluginname', 'local_zoomattendance')]);
+        // 80 %: present for students (75 %), partial for teachers (90 %).
+        $this->assertSame('present', $data->occurrences[0]->status);
+        $this->assertSame('partial', $data->occurrences[0]->teacherstatus);
+    }
+
+    /**
+     * Start of the activity's occurrence.
+     *
+     * @return int
+     */
+    protected function occurrence_start(): int {
+        global $DB;
+        return (int) $DB->get_field('local_zoomattendance_occ', 'timestart', ['zoomid' => $this->cm->instance]);
+    }
+
     public function test_get_contexts_and_users(): void {
         $context = \context_module::instance($this->cm->id);
         $this->assertEquals([$context->id], provider::get_contexts_for_userid($this->user1->id)->get_contextids());

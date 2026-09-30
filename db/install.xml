@@ -12,11 +12,12 @@
         <FIELD NAME="source" TYPE="char" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="schedule, inferred, or manual (window set by a teacher)."/>
         <FIELD NAME="timestart" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Window start."/>
         <FIELD NAME="timeend" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Window end."/>
-        <FIELD NAME="status" TYPE="int" LENGTH="2" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="0 active, 1 cancelled upstream, 2 excluded by a teacher."/>
+        <FIELD NAME="status" TYPE="int" LENGTH="2" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="0 active, 1 cancelled upstream, 2 excluded by a teacher, 3 before a reset of the course's Zoom data."/>
         <FIELD NAME="actualsecs" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Length of the union of mapped session spans inside the window."/>
         <FIELD NAME="timecomputed" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="When results were last recomputed."/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Who last excluded, included or set the window of the occurrence (0 for the sync)."/>
       </FIELDS>
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
@@ -92,6 +93,7 @@
         <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="The Moodle user the identity belongs to."/>
         <FIELD NAME="displayname" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="Zoom display name when the link was made, for reference."/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="usermodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Who made the link."/>
       </FIELDS>
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>

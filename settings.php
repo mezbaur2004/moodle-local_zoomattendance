@@ -100,5 +100,55 @@ if ($hassiteconfig) {
             30,
             PARAM_INT
         ));
+
+        $settings->add(new admin_setting_heading(
+            'local_zoomattendance/teacherattendance',
+            new lang_string('teacherattendance', 'local_zoomattendance'),
+            new lang_string('teacherattendance_desc', 'local_zoomattendance')
+        ));
+        $setting = new admin_setting_configcheckbox(
+            'local_zoomattendance/teachertracking',
+            new lang_string('teachertracking', 'local_zoomattendance'),
+            new lang_string('teachertracking_desc', 'local_zoomattendance'),
+            0
+        );
+        $setting->set_updatedcallback('local_zoomattendance\local\settings::teacher_tracking_updated');
+        $settings->add($setting);
+        $settings->add(new admin_setting_configselect(
+            'local_zoomattendance/teacherpresentpct',
+            new lang_string('teacherpresentpct', 'local_zoomattendance'),
+            new lang_string('teacherpresentpct_desc', 'local_zoomattendance'),
+            90,
+            $percentages
+        ));
+        $settings->add(new admin_setting_configselect(
+            'local_zoomattendance/teacherpartialpct',
+            new lang_string('teacherpartialpct', 'local_zoomattendance'),
+            new lang_string('teacherpartialpct_desc', 'local_zoomattendance'),
+            50,
+            $percentages
+        ));
+        $settings->add(new admin_setting_configtext(
+            'local_zoomattendance/teachergracemins',
+            new lang_string('teachergracemins', 'local_zoomattendance'),
+            new lang_string('teachergracemins_desc', 'local_zoomattendance'),
+            5,
+            PARAM_INT
+        ));
+        $settings->add(new admin_setting_configtext(
+            'local_zoomattendance/teachernotheldhours',
+            new lang_string('teachernotheldhours', 'local_zoomattendance'),
+            new lang_string('teachernotheldhours_desc', 'local_zoomattendance'),
+            24,
+            PARAM_INT
+        ));
     }
 }
+
+// The central teacher list, for managers at site level. Category managers reach it from the category menu.
+$ADMIN->add('reports', new admin_externalpage(
+    'local_zoomattendance_teachers',
+    new lang_string('teachersoverview', 'local_zoomattendance'),
+    new moodle_url('/local/zoomattendance/teachersoverview.php'),
+    'local/zoomattendance:viewteacherreports'
+));

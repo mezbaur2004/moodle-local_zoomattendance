@@ -15,20 +15,43 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Version information for local_zoomattendance.
+ * Window reverted event.
  *
  * @package    local_zoomattendance
  * @copyright  2026 Mezbaur Are Rafi
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-defined('MOODLE_INTERNAL') || die();
+namespace local_zoomattendance\event;
 
-$plugin->component = 'local_zoomattendance';
-$plugin->version = 2026100200;
-$plugin->requires = 2022112800; // Moodle 4.1.
-$plugin->maturity = MATURITY_ALPHA;
-$plugin->release = '0.3.0';
-$plugin->dependencies = [
-    'mod_zoom' => 2026082400, // Mod_zoom v5.5.1.
-];
+/**
+ * A user reverted the window of an occurrence of a Zoom activity.
+ */
+class window_reverted extends occurrence_event {
+    /**
+     * Init method.
+     */
+    protected function init() {
+        parent::init();
+        $this->data['crud'] = 'd';
+    }
+
+    /**
+     * Event name.
+     *
+     * @return string
+     */
+    public static function get_name() {
+        return get_string('eventwindowreverted', 'local_zoomattendance');
+    }
+
+    /**
+     * Event description.
+     *
+     * @return string
+     */
+    public function get_description() {
+        return "The user with id '$this->userid' reverted the window of the occurrence with id '$this->objectid' " .
+            "of the Zoom activity with course module id '$this->contextinstanceid'.";
+    }
+}
