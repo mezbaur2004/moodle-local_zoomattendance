@@ -65,7 +65,7 @@ $capability = $ownview ? 'local/zoomattendance:viewown' : 'local/zoomattendance:
 $coursesummary = course_summary::build($course, 0, $user->id, $capability);
 if (isset($coursesummary->overall[$user->id])) {
     echo html_writer::tag('p', get_string('courseoverall', 'local_zoomattendance') . ': ' .
-        $output->summary_badge($coursesummary->overall[$user->id], $coursesummary->settings), ['class' => 'lead']);
+        renderer::overall($coursesummary->overall[$user->id]), ['class' => 'lead']);
 }
 
 $shown = 0;

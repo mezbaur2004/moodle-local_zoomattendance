@@ -25,13 +25,13 @@
 namespace local_zoomattendance\local;
 
 /**
- * Turns attended time into present / late / absent using the effective thresholds.
+ * Turns attended time into present / partial / absent using the effective thresholds.
  */
 class status {
     /** @var string Present. */
     public const PRESENT = 'present';
-    /** @var string Late. */
-    public const LATE = 'late';
+    /** @var string Joined, but not present: too little time or joined after the late period. */
+    public const PARTIAL = 'partial';
     /** @var string Absent. */
     public const ABSENT = 'absent';
     /** @var string The occurrence has no usable denominator. */
@@ -41,7 +41,7 @@ class status {
      * Evaluate one participant for one occurrence.
      *
      * ABSENT below latepct; PRESENT at or above presentpct when the first join is within the
-     * grace period; LATE otherwise.
+     * grace period; PARTIAL otherwise.
      *
      * @param int $attendedsecs Attended seconds (0 when there is no result).
      * @param int|null $firstjoin First clipped join, null when there is no result.
@@ -67,6 +67,6 @@ class status {
         if ($pct >= $settings->presentpct && $firstjoin <= $windowstart + $settings->lategracemins * MINSECS) {
             return self::PRESENT;
         }
-        return self::LATE;
+        return self::PARTIAL;
     }
 }

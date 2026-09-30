@@ -151,7 +151,7 @@ if (($shared = zoom_source::count_shared_meeting_id($attendance->instance)) > 0)
 }
 $thresholds = (object) [
     'present' => $attendance->settings->presentpct,
-    'late' => $attendance->settings->latepct,
+    'partial' => $attendance->settings->latepct,
     'grace' => $attendance->settings->lategracemins,
     'denominator' => get_string('denominator_' . $attendance->settings->denominator, 'local_zoomattendance'),
 ];

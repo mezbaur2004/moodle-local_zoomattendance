@@ -3,7 +3,7 @@
 Status: **phases 1 and 2 implemented.** Decisions D1–D16 record the adopted choices; sections B13
 and B14 list where the code differs from or refines this design.
 Scope: a Moodle local plugin that turns data `mod_zoom` has already stored
-about sessions and participants into per-occurrence attendance (present / late / absent)
+about sessions and participants into per-occurrence attendance (present / partial / absent)
 with reports.
 
 ```
@@ -13,7 +13,7 @@ mod_zoom tables (zoom, zoom_meeting_details, zoom_meeting_participants, event)
 local_zoomattendance  ──►  occurrence snapshot + per-user attended seconds (cache)
         │
         ▼
-status (present/late/absent) computed at read time from thresholds ──► reports
+status (present/partial/absent) computed at read time from thresholds ──► reports
 ```
 
 The document has two parts, kept separate on purpose:
@@ -445,10 +445,13 @@ Three settings:
 ```
 if no result row or pct < latepct:                               ABSENT
 elif pct >= presentpct and firstjoin <= S + lategracemins*60:    PRESENT
-else:                                                            LATE
+else:                                                            PARTIAL
 ```
-So "late" means the person attended enough to count but either joined after the grace
-period or stayed below the present threshold. Status is **computed at read time**, so
+So "partial" means the person attended enough to count but either joined after the grace
+period or stayed below the present threshold. (Up to 0.2.1 this status was called "late";
+it was renamed because it also covers people who joined on time and left early. The setting
+names `latepct` and `lategracemins` are unchanged; the UI calls `latepct` the partial
+threshold.) Status is **computed at read time**, so
 changing a threshold takes effect immediately without recomputation.
 
 ### B4.7 Where thresholds live (D4)
@@ -482,7 +485,7 @@ of past occurrences' expected lists. Their result rows remain and are shown unde
 
 ### B4.9 Unmatched and non-expected participants
 Each occurrence report has three buckets:
-* **Expected users**: present / late / absent.
+* **Expected users**: present / partial / absent.
 * **Matched but not expected**: a Moodle user who is not enrolled, lacks `betracked`, or
   cannot access the cm. Examples: guest lecturers, and users matched through step 5 of A4.
   Shown with duration, **no status**.
@@ -594,11 +597,10 @@ is on, we show aggregates only (D10).
    whose event was deleted before our snapshot existed): create an `inferred` occurrence
    using the fallback below and flag it in the report as "unscheduled".
 4. **Attendance is per occurrence**. The course summary shows every evaluated occurrence as
-   its own column and one course overall per participant (`classes/local/summary.php`): the
-   percentage is total attended time over the summed denominators of the occurrences the
-   participant was expected at; the status applies the site default thresholds to it and is
-   late when the first join was after the activity's late period in more than half of those
-   occurrences. With one occurrence it equals that occurrence's status.
+   its own column and one course overall percentage per participant
+   (`classes/local/summary.php`): total attended time over the summed denominators of the
+   occurrences the participant was expected at. The course overall has no status, because
+   statuses describe single occurrences.
 5. **Cancelled/excluded occurrences** (`status` 1/2) are shown but not counted.
 
 ### Fallback for meetings without a fixed schedule
@@ -626,18 +628,18 @@ Sessions page; it links to it.
   "Recompute now" (`manage`), and a warning when another `zoom` row shares this activity's
   `meeting_id` (A3, D13).
 * **Occurrence list** (`core_table\flexible_table`/`\table_sql`): date/time, window source
-  (scheduled/inferred), sessions mapped, expected / present / late / absent counts,
+  (scheduled/inferred), sessions mapped, expected / present / partial / absent counts,
   unmatched count, excluded flag.
 * **Occurrence detail** (`&occurrence=<id>`): the three buckets from B4.9. Columns: user,
   identity field (per `showuseridentity`), first join, last leave, attended (h:mm), %,
   status, match badge. Group selector. Export.
-* **Matrix view** (optional tab): users × occurrences, cells P/L/A with %, a totals column,
+* **Matrix view** (optional tab): users × occurrences, cells present / partial / absent with %, a totals column,
   and export.
 
 ### Per-course summary (`/local/zoomattendance/course.php?id=<courseid>`)
 Linked via `local_zoomattendance_extend_navigation_course()`. One row per user, one column
 per evaluated occurrence (status and %), grouped under its activity, and a *Course overall*
-column (status and %, with the P/L/A counts as a tooltip). Built by
+column (percentage only). Built by
 `classes/local/course_summary.php`. The per-user page shows the same course overall at the top.
 
 ### Per-user page (`/local/zoomattendance/user.php?course=<id>&user=<id>`)
@@ -699,7 +701,7 @@ version.php, settings.php, lib.php (navigation callbacks only)
 db/access.php, db/install.xml, db/tasks.php, db/events.php, db/upgrade.php
 classes/local/source/zoom_source.php        (all mod_zoom SQL)
 classes/local/calculator.php                (clip/union/percent; pure, unit-testable)
-classes/local/status.php                    (thresholds → P/L/A)
+classes/local/status.php                    (thresholds → present / partial / absent)
 classes/local/occurrence_mapper.php
 classes/local/expected_users.php
 classes/task/sync.php
@@ -716,7 +718,7 @@ tests/*
 
 Phase 1 implements B1–B12 with decisions D1–D16, except for the items below.
 
-* **When statuses are assigned.** An occurrence is only evaluated (present / late / absent)
+* **When statuses are assigned.** An occurrence is only evaluated (present / partial / absent)
   once at least one mod_zoom session is mapped to it. Before that it is shown as
   *Upcoming* (not ended yet) or *No session data* (ended, but mod_zoom has no session:
   the meeting did not happen or `get_meeting_reports` has not run yet). This stops
@@ -783,7 +785,7 @@ All open questions were resolved by adopting the proposed defaults.
 |---|---|---|
 | **D1** | Moodle version | **Moodle 4.1 LTS and later**, using legacy callbacks (`lib.php` navigation callbacks, `db/events.php` observers), no `\core\hook` API. Check each callback for deprecation when testing on the newest supported release. |
 | **D2** | Minimum mod_zoom | `2026082400` (v5.5.1), the version analysed in Part A. |
-| **D3** | Status semantics | B4.6 as written: ABSENT below `latepct`; PRESENT at or above `presentpct` and joined within `lategracemins`; otherwise LATE. Defaults 75 % / 50 % / 10 min. |
+| **D3** | Status semantics | B4.6 as written: ABSENT below `latepct`; PRESENT at or above `presentpct` and joined within `lategracemins`; otherwise PARTIAL (called LATE up to 0.2.1). Defaults 75 % / 50 % / 10 min. |
 | **D4** | Where thresholds live | Both: site defaults plus optional per-activity overrides, edited on a plugin page (`activitysettings.php`), not in the Zoom activity form. |
 | **D5** | Denominator | `scheduled` by default; per activity it can be switched to `actual`. |
 | **D6** | Manual matching | Yes, in **phase 2** (`local_zoomattendance_idmap`). Phase 1 ships without it. |

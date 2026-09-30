@@ -25,45 +25,32 @@
 namespace local_zoomattendance\local;
 
 /**
- * Accumulates evaluated occurrences into one overall status and percentage.
+ * Accumulates evaluated occurrences into one overall percentage.
  *
  * The percentage is attended time over the summed denominators, so longer occurrences weigh
- * more. The status applies the given thresholds to that percentage; late joins (judged by
- * each occurrence's own late period) count when they happened in more than half of the
- * occurrences. With one occurrence and its own thresholds the result equals that
- * occurrence's status.
+ * more. There is no overall status: statuses describe single occurrences.
  */
 class summary {
     /** @var int Evaluated occurrences. */
     public $count = 0;
-    /** @var int[] Occurrences per status. */
-    public $counts = [status::PRESENT => 0, status::LATE => 0, status::ABSENT => 0];
     /** @var int Summed attended seconds. */
     public $attendedsecs = 0;
     /** @var int Summed denominators. */
     public $denominator = 0;
-    /** @var int Occurrences first joined after the late period. */
-    public $latejoins = 0;
 
     /**
      * Add one evaluated occurrence.
      *
      * @param \stdClass $row Expected row from attendance::evaluate().
-     * @param \stdClass $evaluation Its evaluation (occurrence and denominator).
-     * @param settings $settings Effective settings of the occurrence's activity.
+     * @param \stdClass $evaluation Its evaluation (for the denominator).
      */
-    public function add(\stdClass $row, \stdClass $evaluation, settings $settings): void {
-        if (!isset($this->counts[$row->status])) {
+    public function add(\stdClass $row, \stdClass $evaluation): void {
+        if (!in_array($row->status, [status::PRESENT, status::PARTIAL, status::ABSENT], true)) {
             return;
         }
         $this->count++;
-        $this->counts[$row->status]++;
         $this->attendedsecs += (int) $row->attendedsecs;
         $this->denominator += (int) $evaluation->denominator;
-        $graceend = (int) $evaluation->occurrence->timestart + $settings->lategracemins * MINSECS;
-        if ($row->firstjoin !== null && $row->firstjoin > $graceend) {
-            $this->latejoins++;
-        }
     }
 
     /**
@@ -73,25 +60,5 @@ class summary {
      */
     public function percentage(): ?float {
         return $this->count ? calculator::percentage($this->attendedsecs, $this->denominator) : null;
-    }
-
-    /**
-     * Overall status.
-     *
-     * @param settings $settings Thresholds to apply.
-     * @return string|null A status constant, null when nothing was evaluated.
-     */
-    public function status(settings $settings): ?string {
-        $pct = $this->percentage();
-        if ($pct === null) {
-            return null;
-        }
-        if ($this->attendedsecs <= 0 || $pct < $settings->latepct) {
-            return status::ABSENT;
-        }
-        if ($pct >= $settings->presentpct && $this->latejoins * 2 <= $this->count) {
-            return status::PRESENT;
-        }
-        return status::LATE;
     }
 }

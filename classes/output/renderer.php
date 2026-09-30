@@ -28,7 +28,6 @@ use html_table;
 use html_writer;
 use local_zoomattendance\local\attendance;
 use local_zoomattendance\local\course_summary;
-use local_zoomattendance\local\settings;
 use local_zoomattendance\local\status;
 use local_zoomattendance\local\summary;
 use moodle_url;
@@ -87,52 +86,31 @@ class renderer extends \plugin_renderer_base {
      *
      * @param string|null $status A status constant.
      * @param float|null $pct
-     * @param string|null $title Tooltip.
      * @return string
      */
-    public function status_cell(?string $status, ?float $pct, ?string $title = null): string {
+    public function status_cell(?string $status, ?float $pct): string {
         if ($status === null) {
             return '';
         }
         return html_writer::span(
             trim($this->badge($status) . ' ' . self::percentage($pct)),
-            'local-zoomattendance-status text-nowrap',
-            $title === null ? [] : ['title' => $title]
+            'local-zoomattendance-status text-nowrap'
         );
     }
 
     /**
-     * Overall status as plain text, for downloads.
+     * Overall percentage.
      *
      * @param summary|null $summary
-     * @param settings $settings Thresholds for the overall status.
      * @return string
      */
-    public static function summary_text(?summary $summary, settings $settings): string {
-        return $summary ? self::status_text($summary->status($settings), $summary->percentage()) : '';
-    }
-
-    /**
-     * Overall status badge and percentage; the per-status counts are in the tooltip.
-     *
-     * @param summary|null $summary
-     * @param settings $settings Thresholds for the overall status.
-     * @return string
-     */
-    public function summary_badge(?summary $summary, settings $settings): string {
-        if (!$summary) {
-            return '';
-        }
-        return $this->status_cell(
-            $summary->status($settings),
-            $summary->percentage(),
-            get_string('usersummary', 'local_zoomattendance', (object) $summary->counts)
-        );
+    public static function overall(?summary $summary): string {
+        return $summary ? self::percentage($summary->percentage()) : '';
     }
 
     /**
      * Course attendance table: one column per evaluated occurrence, grouped by activity, and
-     * the course overall.
+     * the course overall percentage.
      *
      * @param course_summary $summary
      * @return string
@@ -169,7 +147,7 @@ class renderer extends \plugin_renderer_base {
                     $cells[] = html_writer::tag('td', $row ? $this->status_cell($row->status, $row->percentage) : '–');
                 }
             }
-            $cells[] = html_writer::tag('td', $this->summary_badge($summary->overall[$userid] ?? null, $summary->settings));
+            $cells[] = html_writer::tag('td', self::overall($summary->overall[$userid] ?? null));
             $body .= html_writer::tag('tr', implode('', $cells));
         }
 
@@ -191,7 +169,7 @@ class renderer extends \plugin_renderer_base {
         }
         $classes = [
             status::PRESENT => 'success',
-            status::LATE => 'warning',
+            status::PARTIAL => 'warning',
             status::ABSENT => 'danger',
             status::INVALID => 'secondary',
             attendance::STATE_UPCOMING => 'info',
@@ -245,7 +223,7 @@ class renderer extends \plugin_renderer_base {
             get_string('sessions', 'local_zoomattendance'),
             get_string('expected', 'local_zoomattendance'),
             get_string('status_present', 'local_zoomattendance'),
-            get_string('status_late', 'local_zoomattendance'),
+            get_string('status_partial', 'local_zoomattendance'),
             get_string('status_absent', 'local_zoomattendance'),
             get_string('notexpected', 'local_zoomattendance'),
             get_string('unmatched', 'local_zoomattendance'),
@@ -267,7 +245,7 @@ class renderer extends \plugin_renderer_base {
                 $attendance->session_count($occurrence),
                 count($evaluation->expected),
                 $evaluated ? $evaluation->counts[status::PRESENT] : '',
-                $evaluated ? $evaluation->counts[status::LATE] : '',
+                $evaluated ? $evaluation->counts[status::PARTIAL] : '',
                 $evaluated ? $evaluation->counts[status::ABSENT] : '',
                 count($evaluation->notexpected),
                 count($evaluation->unmatched),

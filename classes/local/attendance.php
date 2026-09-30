@@ -244,7 +244,7 @@ class attendance {
             'expected' => [],
             'notexpected' => [],
             'unmatched' => [],
-            'counts' => [status::PRESENT => 0, status::LATE => 0, status::ABSENT => 0],
+            'counts' => [status::PRESENT => 0, status::PARTIAL => 0, status::ABSENT => 0],
         ];
 
         $expectedids = [];
