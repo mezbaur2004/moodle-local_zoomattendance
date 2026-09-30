@@ -1,8 +1,9 @@
 # local_zoomattendance — Architecture (design only)
 
-Status: **phases 1 and 2 implemented; phase 3 (Part C, teacher attendance) proposed.**
+Status: **phases 1, 2 and 3 implemented** (phase 3 is Part C, teacher attendance).
 Decisions D1–D16 record the adopted choices for Parts A and B; sections B13 and B14 list where
-the code differs from or refines this design. D17–D25 cover Part C.
+the code differs from or refines this design. D17–D25 cover Part C, and C11 does the same
+for it.
 Scope: a Moodle local plugin that turns data `mod_zoom` has already stored
 about sessions and participants into per-occurrence attendance (present / partial / absent)
 with reports.
@@ -781,10 +782,10 @@ Phase 2 completes D6 (manual matching) and the second half of D11 (manual window
 
 ---
 
-# Part C — Teacher attendance (phase 3, proposed)
+# Part C — Teacher attendance (phase 3)
 
-Status: **design for review; not implemented.** Decisions D17–D25 record the choices made
-for it. The goal is to evaluate teachers on how accurately they attend their own scheduled
+Status: **implemented in 0.3.0.** Decisions D17–D25 record the choices made for it; C11 lists
+where the code refines this design. The goal is to evaluate teachers on how accurately they attend their own scheduled
 Zoom classes, with a central list for managers and a private view for each teacher.
 
 ## C1. What already exists
@@ -950,8 +951,10 @@ so on large sites the date filter bounds the work. Caching is left until it is m
 
 * **Course reset with `reset_zoom_all`:** mod_zoom deletes the course's sessions and
   participants. Past scheduled occurrences would then have no session and would all become
-  Not held. On such a reset the observer deletes the course's occurrences that ended before
-  the reset, with their results (D25). Other resets keep them.
+  Not held. On such a reset the observer marks the course's occurrences that ended before the
+  reset with status 3, *Zoom data reset* (D25). They are never counted, for students or
+  teachers. They are marked rather than deleted because the sync would recreate scheduled
+  occurrences. Other resets leave them alone.
 * **Privacy provider:**
   * the new `usermodified` fields are declared;
   * export lists the changes a user made;
@@ -989,6 +992,46 @@ so on large sites the date filter bounds the work. Caching is left until it is m
   would not identify the teacher behind a shared host account. Deferred (D24).
 * **Responsible teachers per activity:** not needed with D18.
 
+## C11. Phase 3 implementation notes
+
+* **Classes.**
+  * `classes/local/teacher_attendance.php` holds the teacher states and the evaluation of one
+    occurrence.
+  * `classes/local/teacher_summary.php` builds a course's columns, cells, overall percentages
+    and counts.
+  * `classes/local/teacher_overview.php` selects the courses a viewer may see and builds the
+    central list's rows.
+  * The pages are `teachers.php` and `teachersoverview.php`.
+  * The six log events are in `classes/event/`.
+  * Excluding and including moved from `report.php` to `manual::set_excluded()`.
+* **Reset (D25).** Deleting past occurrences did not work: the next sync recreates scheduled
+  occurrences from the activity's schedule, so they would still have become Not held. A new
+  occurrence status 3, *Zoom data reset* (state `reset`), replaces the deletion. The sync never
+  changes it. It cannot be excluded or included, and it counts for nobody.
+* **Not held** applies only to `source = schedule`, as designed. Inferred and manual
+  occurrences always come from sessions anyway.
+* **Occurrences without a fixed schedule.** Office-hours style inferred occurrences exist only
+  when a session happened. Teachers are expected at them like at any other occurrence, so a
+  teacher who missed one is Absent.
+* **Columns.** Excluded occurrences get a column only once they have ended. Cancelled,
+  upcoming, awaiting and reset occurrences get none.
+* **Hiding teachers (C6).**
+  * It applies whether or not teacher tracking is on, because the leak existed before.
+  * Viewers without `viewteacherreports` also no longer see *themselves* under "Matched but
+    not expected". Their own figures are on their teacher pages.
+  * The user profile no longer offers a link to another teacher's attendance page.
+* **`teachertrackingsince`** is set whenever teacher tracking is switched on in the settings.
+  If it is missing, for example after a CLI change, it is set on first use.
+* **Testing.**
+  * 83 PHPUnit tests. The new ones cover teacher statuses and figures, the Not held watermark,
+    delay and cut-off, syncing disabled activities, the course counts, self-links, hiding
+    teachers, the central list's scope, audit fields and events, reset marking, anonymised
+    deletion and the privacy provider.
+  * Locally on Moodle 5.0.10+, PHP 8.4, PostgreSQL 16, together with Moodle's privacy
+    compliance tests.
+  * Upgrading 0.2.3 to 0.3.0 keeps all results, and `check_database_schema.php` reports no
+    differences.
+
 ---
 
 ## Decisions
@@ -1021,4 +1064,4 @@ All open questions were resolved by adopting the proposed defaults.
 | **D22** | Integrity | While teacher tracking is on, every activity is synced; exclusions, windows and identity links record who made them, are logged, and are shown to managers; self-links are flagged (C5). |
 | **D23** | Teacher course overall | Weighted percentage only, no overall status, as for students (C3). |
 | **D24** | Host detection | Deferred until verified against real Zoom data (C10). |
-| **D25** | Reset | A reset with `reset_zoom_all` deletes the course's past occurrences so they do not become Not held (C8). |
+| **D25** | Reset | A reset with `reset_zoom_all` marks the course's past occurrences *Zoom data reset* (status 3), never counted, so they do not become Not held (C8, C11). |

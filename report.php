@@ -25,6 +25,7 @@
 require(__DIR__ . '/../../config.php');
 
 use local_zoomattendance\local\attendance;
+use local_zoomattendance\local\manual;
 use local_zoomattendance\local\source\zoom_source;
 use local_zoomattendance\local\sync;
 use local_zoomattendance\output\renderer;
@@ -41,6 +42,8 @@ require_capability('local/zoomattendance:viewreports', $context);
 $canmanage = has_capability('local/zoomattendance:manage', $context);
 // Identity links apply to every Zoom activity in the course, so they need the course-level capability.
 $canlink = has_capability('local/zoomattendance:manage', context_course::instance($course->id));
+// Teachers must not see other teachers' Zoom times.
+$hideteachers = !has_capability('local/zoomattendance:viewteacherreports', context_course::instance($course->id));
 
 $baseurl = new moodle_url('/local/zoomattendance/report.php', ['id' => $cm->id]);
 $url = $occurrenceid ? new moodle_url($baseurl, ['occurrence' => $occurrenceid]) : $baseurl;
@@ -65,14 +68,7 @@ if ($action !== '') {
             '*',
             MUST_EXIST
         );
-        if ((int) $target->status !== sync::STATUS_CANCELLED) {
-            $DB->set_field(
-                'local_zoomattendance_occ',
-                'status',
-                $action === 'exclude' ? sync::STATUS_EXCLUDED : sync::STATUS_ACTIVE,
-                ['id' => $target->id]
-            );
-        }
+        manual::set_excluded($target, $action === 'exclude');
         redirect($url);
     }
     throw new moodle_exception('invalidaction', 'local_zoomattendance');
@@ -93,6 +89,9 @@ if ($occurrenceid && !$masked && !$nogroupaccess) {
     $occurrence = $occurrences[$occurrenceid];
     $results = $attendance->get_results([$occurrenceid])[$occurrenceid] ?? [];
     $evaluation = $attendance->evaluate($occurrence, $candidates, $results, $groupid);
+    if ($hideteachers) {
+        $evaluation->notexpected = $attendance->without_teachers($evaluation->notexpected);
+    }
 
     if ($download !== '') {
         $identityfields = $attendance->identity_fields();
@@ -144,7 +143,9 @@ echo $output->header();
 echo $output->heading(get_string('attendancereport', 'local_zoomattendance'));
 
 if (!$attendance->settings->enabled) {
-    echo $output->notification(get_string('notenabled', 'local_zoomattendance'), 'warning');
+    // While teacher attendance is tracked every activity is still synced.
+    $notice = \local_zoomattendance\local\settings::teacher_tracking() ? 'notenabledteachers' : 'notenabled';
+    echo $output->notification(get_string($notice, 'local_zoomattendance'), 'warning');
 }
 if (($shared = zoom_source::count_shared_meeting_id($attendance->instance)) > 0) {
     echo $output->notification(get_string('sharedmeetingid', 'local_zoomattendance', $shared), 'warning');
@@ -199,12 +200,11 @@ if ($nogroupaccess) {
         $results = $attendance->get_results(array_keys($occurrences));
         $evaluations = [];
         foreach ($occurrences as $occurrence) {
-            $evaluations[$occurrence->id] = $attendance->evaluate(
-                $occurrence,
-                $candidates,
-                $results[$occurrence->id] ?? [],
-                $groupid
-            );
+            $evaluation = $attendance->evaluate($occurrence, $candidates, $results[$occurrence->id] ?? [], $groupid);
+            if ($hideteachers) {
+                $evaluation->notexpected = $attendance->without_teachers($evaluation->notexpected);
+            }
+            $evaluations[$occurrence->id] = $evaluation;
         }
         echo $output->occurrence_list($attendance, $evaluations, $baseurl, $canmanage, $masked);
     }

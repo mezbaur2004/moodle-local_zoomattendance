@@ -43,6 +43,8 @@ class attendance {
     public const STATE_CANCELLED = 'cancelled';
     /** @var string Excluded by a teacher. */
     public const STATE_EXCLUDED = 'excluded';
+    /** @var string The course's Zoom data was reset after it. */
+    public const STATE_RESET = 'reset';
 
     /** @var \cm_info */
     public $cm;
@@ -56,6 +58,8 @@ class attendance {
     protected $occurrences;
     /** @var int[] occurrence id => number of mapped sessions. */
     protected $sessioncounts;
+    /** @var \stdClass[]|null Users holding betrackedteacher in the module, keyed by id. */
+    protected $teacherids;
 
     /**
      * Constructor.
@@ -118,6 +122,9 @@ class attendance {
         if ((int) $occurrence->status === sync::STATUS_CANCELLED) {
             return self::STATE_CANCELLED;
         }
+        if ((int) $occurrence->status === sync::STATUS_RESET) {
+            return self::STATE_RESET;
+        }
         if ($this->session_count($occurrence) > 0) {
             return self::STATE_EVALUATED;
         }
@@ -150,16 +157,22 @@ class attendance {
     }
 
     /**
-     * Users who can be expected: enrolled, holding local/zoomattendance:betracked, not suspended,
-     * and able to access the activity. Each gets their active enrolment windows.
+     * Users who can be expected: enrolled, holding local/zoomattendance:betracked (or another
+     * capability, such as betrackedteacher), not suspended, and able to access the activity.
+     * Each gets their active enrolment windows.
      *
      * @param int $groupid Limit to a group (0 for all).
      * @param int[]|null $userids Limit to these users.
+     * @param string $capability Capability that makes a user expected.
      * @return \stdClass[] userid => user record with a "windows" list of [timestart, timeend].
      */
-    public function get_candidates(int $groupid = 0, ?array $userids = null): array {
+    public function get_candidates(
+        int $groupid = 0,
+        ?array $userids = null,
+        string $capability = 'local/zoomattendance:betracked'
+    ): array {
         global $DB;
-        $join = get_enrolled_with_capabilities_join($this->context, '', 'local/zoomattendance:betracked', $groupid);
+        $join = get_enrolled_with_capabilities_join($this->context, '', $capability, $groupid);
         $sql = "SELECT DISTINCT u.id FROM {user} u {$join->joins} WHERE {$join->wheres} AND u.suspended = 0";
         $params = $join->params;
         if ($userids !== null) {
@@ -204,6 +217,22 @@ class attendance {
         }
         $windows->close();
         return $users;
+    }
+
+    /**
+     * Leave out users tracked as teachers, for viewers who may not see other teachers' figures.
+     *
+     * @param \stdClass[] $rows Rows keyed by user id, such as an evaluation's notexpected list.
+     * @return \stdClass[]
+     */
+    public function without_teachers(array $rows): array {
+        if (!$rows) {
+            return $rows;
+        }
+        if ($this->teacherids === null) {
+            $this->teacherids = get_users_by_capability($this->context, 'local/zoomattendance:betrackedteacher', 'u.id');
+        }
+        return array_diff_key($rows, $this->teacherids);
     }
 
     /**

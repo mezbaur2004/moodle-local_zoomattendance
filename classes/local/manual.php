@@ -27,8 +27,9 @@ namespace local_zoomattendance\local;
 use local_zoomattendance\local\source\zoom_source;
 
 /**
- * Teacher corrections that feed back into the sync: linking an unmatched Zoom participant to a
- * user (per course), and setting the window of an inferred occurrence.
+ * Teacher corrections: linking an unmatched Zoom participant to a user (per course), setting
+ * the window of an inferred occurrence, and excluding an occurrence. Each records who made it
+ * and is logged, because it can change teacher attendance figures too.
  *
  * Each change marks the affected occurrences for recompute before syncing, so it still takes
  * effect on the next scheduled sync if another sync holds the lock right now.
@@ -44,7 +45,7 @@ class manual {
      * @return bool False when the recompute could not run now (it will on the next sync).
      */
     public static function link_identity(int $courseid, string $identitykey, int $userid, ?string $displayname): bool {
-        global $DB;
+        global $DB, $USER;
         if (!self::is_unmatched_key($identitykey)) {
             throw new \coding_exception('Only unmatched (z:) identities can be linked.');
         }
@@ -54,16 +55,20 @@ class manual {
         $record = $DB->get_record('local_zoomattendance_idmap', ['courseid' => $courseid, 'identitykey' => $identitykey]);
         if ($record) {
             $record->userid = $userid;
+            $record->usermodified = (int) $USER->id;
             $DB->update_record('local_zoomattendance_idmap', $record);
         } else {
-            $DB->insert_record('local_zoomattendance_idmap', (object) [
+            $record = (object) [
                 'courseid' => $courseid,
                 'identitykey' => $identitykey,
                 'userid' => $userid,
                 'displayname' => $displayname === null ? null : \core_text::substr($displayname, 0, 255),
                 'timecreated' => time(),
-            ]);
+                'usermodified' => (int) $USER->id,
+            ];
+            $record->id = $DB->insert_record('local_zoomattendance_idmap', $record);
         }
+        \local_zoomattendance\event\identity_linked::create_from_link($record)->trigger();
         return self::recompute_course($courseid);
     }
 
@@ -76,8 +81,38 @@ class manual {
      */
     public static function unlink_identity(int $courseid, int $linkid): bool {
         global $DB;
-        $DB->delete_records('local_zoomattendance_idmap', ['id' => $linkid, 'courseid' => $courseid]);
+        $link = $DB->get_record('local_zoomattendance_idmap', ['id' => $linkid, 'courseid' => $courseid]);
+        if ($link) {
+            $DB->delete_records('local_zoomattendance_idmap', ['id' => $link->id]);
+            \local_zoomattendance\event\identity_unlinked::create_from_link($link)->trigger();
+        }
         return self::recompute_course($courseid);
+    }
+
+    /**
+     * Exclude an occurrence from the figures, or include it again. Cancelled occurrences, and
+     * those from before a Zoom data reset, stay as they are. Records who made the change.
+     *
+     * @param \stdClass $occurrence
+     * @param bool $excluded
+     */
+    public static function set_excluded(\stdClass $occurrence, bool $excluded): void {
+        global $DB, $USER;
+        if (in_array((int) $occurrence->status, [sync::STATUS_CANCELLED, sync::STATUS_RESET], true)) {
+            return;
+        }
+        $occurrence->status = $excluded ? sync::STATUS_EXCLUDED : sync::STATUS_ACTIVE;
+        $occurrence->usermodified = (int) $USER->id;
+        $occurrence->timemodified = time();
+        $DB->update_record('local_zoomattendance_occ', (object) [
+            'id' => $occurrence->id,
+            'status' => $occurrence->status,
+            'usermodified' => $occurrence->usermodified,
+            'timemodified' => $occurrence->timemodified,
+        ]);
+        $class = $excluded ? \local_zoomattendance\event\occurrence_excluded::class
+            : \local_zoomattendance\event\occurrence_included::class;
+        $class::create_from_occurrence($occurrence, self::get_cm($occurrence))->trigger();
     }
 
     /**
@@ -113,7 +148,7 @@ class manual {
      * @return bool False when the recompute could not run now.
      */
     public static function set_window(\stdClass $occurrence, int $start, int $end): bool {
-        global $DB;
+        global $DB, $USER;
         if (!self::can_set_window($occurrence)) {
             throw new \coding_exception('Only inferred or manual occurrences can have their window set.');
         }
@@ -126,12 +161,18 @@ class manual {
             'timeend' => $end,
             'timecomputed' => 0,
             'timemodified' => time(),
+            'usermodified' => (int) $USER->id,
         ];
         if ($occurrence->source === sync::SOURCE_INFERRED) {
             $update->source = sync::SOURCE_MANUAL;
             $update->occurrencekey = 'm:' . sha1($occurrence->occurrencekey . '|' . $occurrence->id);
         }
         $DB->update_record('local_zoomattendance_occ', $update);
+        $event = \local_zoomattendance\event\window_set::create_from_occurrence(
+            (object) array_merge((array) $occurrence, (array) $update),
+            self::get_cm($occurrence)
+        );
+        $event->trigger();
         return self::sync_zoom((int) $occurrence->zoomid);
     }
 
@@ -146,10 +187,12 @@ class manual {
         if ($occurrence->source !== sync::SOURCE_MANUAL) {
             throw new \coding_exception('Only manual occurrences can be reverted.');
         }
+        $event = \local_zoomattendance\event\window_reverted::create_from_occurrence($occurrence, self::get_cm($occurrence));
         $transaction = $DB->start_delegated_transaction();
         $DB->delete_records('local_zoomattendance_result', ['occurrenceid' => $occurrence->id]);
         $DB->delete_records('local_zoomattendance_occ', ['id' => $occurrence->id]);
         $transaction->allow_commit();
+        $event->trigger();
         return self::sync_zoom((int) $occurrence->zoomid);
     }
 
@@ -171,6 +214,16 @@ class manual {
             }
         }
         return $done;
+    }
+
+    /**
+     * The zoom course module of an occurrence.
+     *
+     * @param \stdClass $occurrence
+     * @return \stdClass
+     */
+    protected static function get_cm(\stdClass $occurrence): \stdClass {
+        return get_coursemodule_from_instance('zoom', $occurrence->zoomid, 0, false, MUST_EXIST);
     }
 
     /**

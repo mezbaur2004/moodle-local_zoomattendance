@@ -241,4 +241,74 @@ final class manual_test extends \advanced_testcase {
         $sources = array_column($all, 'source');
         $this->assertEqualsCanonicalizing([sync::SOURCE_INFERRED, sync::SOURCE_MANUAL], $sources);
     }
+
+    public function test_changes_record_who_made_them_and_are_logged(): void {
+        global $DB;
+        [$cm, $student, $phonekey] = $this->meeting_with_phone();
+        $teacher = $this->getDataGenerator()->create_and_enrol($this->course, 'editingteacher');
+        $this->setUser($teacher);
+        $sink = $this->redirectEvents();
+
+        manual::link_identity((int) $this->course->id, $phonekey, (int) $student->id, 'Phone');
+        $link = $DB->get_record('local_zoomattendance_idmap', ['identitykey' => $phonekey]);
+        $this->assertEquals($teacher->id, $link->usermodified);
+
+        $occurrence = $DB->get_record('local_zoomattendance_occ', ['zoomid' => $cm->instance]);
+        manual::set_excluded($occurrence, true);
+        $updated = $DB->get_record('local_zoomattendance_occ', ['id' => $occurrence->id]);
+        $this->assertEquals(sync::STATUS_EXCLUDED, $updated->status);
+        $this->assertEquals($teacher->id, $updated->usermodified);
+        manual::set_excluded($updated, false);
+        manual::unlink_identity((int) $this->course->id, (int) $link->id);
+
+        $events = array_values(array_filter($sink->get_events(), function ($event) {
+            return strpos(get_class($event), 'local_zoomattendance\\event\\') === 0;
+        }));
+        $this->assertSame([
+            \local_zoomattendance\event\identity_linked::class,
+            \local_zoomattendance\event\occurrence_excluded::class,
+            \local_zoomattendance\event\occurrence_included::class,
+            \local_zoomattendance\event\identity_unlinked::class,
+        ], array_map('get_class', $events));
+        $this->assertEquals($student->id, $events[0]->relateduserid);
+        $this->assertEquals(\context_course::instance($this->course->id), $events[0]->get_context());
+        $this->assertEquals(\context_module::instance($cm->id), $events[1]->get_context());
+        $this->assertEquals($occurrence->id, $events[1]->objectid);
+        $this->assertNotEmpty($events[1]->get_description());
+        $this->assertInstanceOf(\moodle_url::class, $events[1]->get_url());
+    }
+
+    public function test_cancelled_occurrences_cannot_be_excluded(): void {
+        global $DB;
+        $cm = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $this->mins(0),
+            'duration' => HOURSECS]);
+        sync::sync_all();
+        $occurrence = $DB->get_record('local_zoomattendance_occ', ['zoomid' => $cm->instance]);
+        $DB->set_field('local_zoomattendance_occ', 'status', sync::STATUS_CANCELLED, ['id' => $occurrence->id]);
+        $occurrence->status = sync::STATUS_CANCELLED;
+        manual::set_excluded($occurrence, true);
+        $status = $DB->get_field('local_zoomattendance_occ', 'status', ['id' => $occurrence->id]);
+        $this->assertEquals(sync::STATUS_CANCELLED, $status);
+    }
+
+    public function test_window_changes_are_logged(): void {
+        global $DB;
+        [, , $occurrence] = $this->unscheduled_meeting();
+        $teacher = $this->getDataGenerator()->create_and_enrol($this->course, 'editingteacher');
+        $this->setUser($teacher);
+        $sink = $this->redirectEvents();
+
+        manual::set_window($occurrence, $this->mins(0), $this->mins(60));
+        $manual = $DB->get_record('local_zoomattendance_occ', ['id' => $occurrence->id]);
+        $this->assertEquals($teacher->id, $manual->usermodified);
+        manual::revert_window($manual);
+
+        $classes = array_map('get_class', array_values(array_filter($sink->get_events(), function ($event) {
+            return strpos(get_class($event), 'local_zoomattendance\\event\\') === 0;
+        })));
+        $this->assertSame([
+            \local_zoomattendance\event\window_set::class,
+            \local_zoomattendance\event\window_reverted::class,
+        ], $classes);
+    }
 }

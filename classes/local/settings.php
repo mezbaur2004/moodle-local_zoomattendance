@@ -37,7 +37,7 @@ class settings {
     public $enabled;
     /** @var int Minimum percentage for present. */
     public $presentpct;
-    /** @var int Minimum percentage for late; below it is absent. */
+    /** @var int Minimum percentage for partial; below it is absent. */
     public $latepct;
     /** @var int Minutes after the start a present participant may join. */
     public $lategracemins;
@@ -118,6 +118,69 @@ class settings {
             return (int) $occurrence->actualsecs;
         }
         return (int) $occurrence->timeend - (int) $occurrence->timestart;
+    }
+
+    /**
+     * Whether teacher attendance is tracked (site setting).
+     *
+     * @return bool
+     */
+    public static function teacher_tracking(): bool {
+        return !empty(get_config('local_zoomattendance', 'teachertracking'));
+    }
+
+    /**
+     * Thresholds for teachers: site-level only, always against the scheduled window.
+     *
+     * The partial threshold is held in latepct, as for students, so status::evaluate() applies.
+     *
+     * @return self
+     */
+    public static function teacher(): self {
+        $config = get_config('local_zoomattendance');
+        $settings = new self();
+        $settings->enabled = !empty($config->teachertracking);
+        $settings->presentpct = isset($config->teacherpresentpct) ? (int) $config->teacherpresentpct : 90;
+        $settings->latepct = isset($config->teacherpartialpct) ? (int) $config->teacherpartialpct : 50;
+        $settings->lategracemins = isset($config->teachergracemins) ? (int) $config->teachergracemins : 5;
+        $settings->denominator = self::DENOMINATOR_SCHEDULED;
+        $settings->normalise();
+        return $settings;
+    }
+
+    /**
+     * Seconds after an occurrence ends, measured against mod_zoom's report watermark, before a
+     * class without a session counts as not held.
+     *
+     * @return int
+     */
+    public static function teacher_notheld_delay(): int {
+        $hours = get_config('local_zoomattendance', 'teachernotheldhours');
+        return max(0, $hours === false || $hours === '' ? 24 : (int) $hours) * HOURSECS;
+    }
+
+    /**
+     * When teacher tracking was last switched on. Classes ending before it are never marked not
+     * held. Set now if missing, for example when the setting was changed outside the settings page.
+     *
+     * @return int
+     */
+    public static function teacher_tracking_since(): int {
+        $since = (int) get_config('local_zoomattendance', 'teachertrackingsince');
+        if (!$since) {
+            $since = time();
+            set_config('teachertrackingsince', $since, 'local_zoomattendance');
+        }
+        return $since;
+    }
+
+    /**
+     * Settings page callback: remember when teacher tracking was switched on.
+     */
+    public static function teacher_tracking_updated(): void {
+        if (self::teacher_tracking()) {
+            set_config('teachertrackingsince', time(), 'local_zoomattendance');
+        }
     }
 
     /**
