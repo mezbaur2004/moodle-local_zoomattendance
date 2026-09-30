@@ -170,7 +170,17 @@ class renderer extends \plugin_renderer_base {
                 count($evaluation->unmatched),
             ];
             if ($canmanage) {
-                $row[] = $this->exclude_toggle($occurrence, $baseurl);
+                $actions = [$this->exclude_toggle($occurrence, $baseurl)];
+                if (\local_zoomattendance\local\manual::can_set_window($occurrence)) {
+                    $actions[] = html_writer::link(
+                        new moodle_url('/local/zoomattendance/window.php', [
+                            'id' => $attendance->cm->id,
+                            'occurrence' => $occurrence->id,
+                        ]),
+                        get_string('setwindow', 'local_zoomattendance')
+                    );
+                }
+                $row[] = implode(' · ', array_filter($actions));
             }
             $table->data[] = $row;
         }
@@ -199,9 +209,10 @@ class renderer extends \plugin_renderer_base {
      *
      * @param attendance $attendance
      * @param \stdClass $evaluation
+     * @param bool $canlink Whether the viewer may link unmatched participants to users.
      * @return string
      */
-    public function occurrence_detail(attendance $attendance, \stdClass $evaluation): string {
+    public function occurrence_detail(attendance $attendance, \stdClass $evaluation, bool $canlink = false): string {
         $output = $this->heading(get_string('expectedusers', 'local_zoomattendance'), 4);
         $output .= $this->user_table($attendance, $evaluation->expected, true);
         if ($evaluation->notexpected) {
@@ -220,14 +231,28 @@ class renderer extends \plugin_renderer_base {
                 get_string('attended', 'local_zoomattendance'),
                 get_string('percentage', 'local_zoomattendance'),
             ];
+            if ($canlink) {
+                $table->head[] = get_string('actions');
+            }
             foreach ($evaluation->unmatched as $row) {
-                $table->data[] = [
+                $cells = [
                     format_string($row->displayname, true, ['context' => $attendance->context]),
                     self::time($row->firstjoin),
                     self::time($row->lastleave),
                     self::duration($row->attendedsecs),
                     self::percentage($row->percentage),
                 ];
+                if ($canlink) {
+                    $cells[] = html_writer::link(
+                        new moodle_url('/local/zoomattendance/link.php', [
+                            'id' => $attendance->cm->id,
+                            'key' => $row->result->identitykey,
+                            'occurrence' => $evaluation->occurrence->id,
+                        ]),
+                        get_string('linktouser', 'local_zoomattendance')
+                    );
+                }
+                $table->data[] = $cells;
             }
             $output .= html_writer::table($table);
         }
@@ -275,6 +300,13 @@ class renderer extends \plugin_renderer_base {
                     get_string('weakmatch', 'local_zoomattendance'),
                     'badge badge-light bg-light text-dark',
                     ['title' => get_string('weakmatch_help', 'local_zoomattendance')]
+                );
+            }
+            if ($row->manualmatch) {
+                $name .= ' ' . html_writer::span(
+                    get_string('manualmatch', 'local_zoomattendance'),
+                    'badge badge-info bg-info text-white',
+                    ['title' => get_string('manualmatch_help', 'local_zoomattendance')]
                 );
             }
             $cells = [$name];

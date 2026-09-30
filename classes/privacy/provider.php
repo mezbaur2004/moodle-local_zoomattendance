@@ -36,7 +36,7 @@ use local_zoomattendance\local\status;
 
 /**
  * Privacy provider. Results are derived from mod_zoom participant data and stored per Zoom
- * activity (module context).
+ * activity (module context); identity links are stored per course (course context).
  */
 class provider implements
     \core_privacy\local\metadata\provider,
@@ -57,6 +57,11 @@ class provider implements
             'lastleave' => 'privacy:metadata:result:lastleave',
             'matchstrength' => 'privacy:metadata:result:matchstrength',
         ], 'privacy:metadata:result');
+        $collection->add_database_table('local_zoomattendance_idmap', [
+            'userid' => 'privacy:metadata:idmap:userid',
+            'displayname' => 'privacy:metadata:idmap:displayname',
+            'timecreated' => 'privacy:metadata:idmap:timecreated',
+        ], 'privacy:metadata:idmap');
         return $collection;
     }
 
@@ -82,6 +87,13 @@ class provider implements
     public static function get_contexts_for_userid(int $userid): contextlist {
         $contextlist = new contextlist();
         $contextlist->add_from_sql(
+            "SELECT ctx.id
+               FROM {local_zoomattendance_idmap} i
+               JOIN {context} ctx ON ctx.instanceid = i.courseid AND ctx.contextlevel = :ctxlevel
+              WHERE i.userid = :userid",
+            ['ctxlevel' => CONTEXT_COURSE, 'userid' => $userid]
+        );
+        $contextlist->add_from_sql(
             "SELECT ctx.id " . self::context_join() . " WHERE r.userid = :userid",
             ['modname' => 'zoom', 'ctxlevel' => CONTEXT_MODULE, 'userid' => $userid]
         );
@@ -95,6 +107,14 @@ class provider implements
      */
     public static function get_users_in_context(userlist $userlist) {
         $context = $userlist->get_context();
+        if ($context instanceof \context_course) {
+            $userlist->add_from_sql(
+                'userid',
+                "SELECT userid FROM {local_zoomattendance_idmap} WHERE courseid = :courseid",
+                ['courseid' => $context->instanceid]
+            );
+            return;
+        }
         if (!$context instanceof \context_module) {
             return;
         }
@@ -114,6 +134,10 @@ class provider implements
         global $DB;
         $userid = $contextlist->get_user()->id;
         foreach ($contextlist->get_contexts() as $context) {
+            if ($context instanceof \context_course) {
+                self::export_links($context, $userid);
+                continue;
+            }
             if (!$context instanceof \context_module) {
                 continue;
             }
@@ -156,12 +180,45 @@ class provider implements
     }
 
     /**
-     * Delete all results for a module context.
+     * Export the identity links naming a user in a course.
+     *
+     * @param \context_course $context
+     * @param int $userid
+     */
+    protected static function export_links(\context_course $context, int $userid): void {
+        global $DB;
+        $links = $DB->get_records(
+            'local_zoomattendance_idmap',
+            ['courseid' => $context->instanceid, 'userid' => $userid],
+            'timecreated'
+        );
+        if (!$links) {
+            return;
+        }
+        $data = [];
+        foreach ($links as $link) {
+            $data[] = (object) [
+                'zoomname' => $link->displayname,
+                'linkedon' => transform::datetime($link->timecreated),
+            ];
+        }
+        writer::with_context($context)->export_data(
+            [get_string('pluginname', 'local_zoomattendance'), get_string('identitylinks', 'local_zoomattendance')],
+            (object) ['links' => $data]
+        );
+    }
+
+    /**
+     * Delete all results for a module context, or all identity links for a course context.
      *
      * @param \context $context
      */
     public static function delete_data_for_all_users_in_context(\context $context) {
         global $DB;
+        if ($context instanceof \context_course) {
+            $DB->delete_records('local_zoomattendance_idmap', ['courseid' => $context->instanceid]);
+            return;
+        }
         if (!$context instanceof \context_module) {
             return;
         }
@@ -181,6 +238,10 @@ class provider implements
         global $DB;
         $userid = $contextlist->get_user()->id;
         foreach ($contextlist->get_contexts() as $context) {
+            if ($context instanceof \context_course) {
+                $DB->delete_records('local_zoomattendance_idmap', ['courseid' => $context->instanceid, 'userid' => $userid]);
+                continue;
+            }
             if (!$context instanceof \context_module) {
                 continue;
             }
@@ -200,10 +261,21 @@ class provider implements
     public static function delete_data_for_users(approved_userlist $userlist) {
         global $DB;
         $context = $userlist->get_context();
-        if (!$context instanceof \context_module || !$userlist->get_userids()) {
+        if (!$userlist->get_userids()) {
             return;
         }
         [$insql, $params] = $DB->get_in_or_equal($userlist->get_userids(), SQL_PARAMS_NAMED);
+        if ($context instanceof \context_course) {
+            $DB->delete_records_select(
+                'local_zoomattendance_idmap',
+                "userid $insql AND courseid = :courseid",
+                $params + ['courseid' => $context->instanceid]
+            );
+            return;
+        }
+        if (!$context instanceof \context_module) {
+            return;
+        }
         $DB->delete_records_select(
             'local_zoomattendance_result',
             "userid $insql AND occurrenceid IN (" . self::occurrences_sql() . ')',

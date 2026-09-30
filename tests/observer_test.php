@@ -78,20 +78,32 @@ final class observer_test extends \advanced_testcase {
     public function test_user_deleted(): void {
         global $DB;
         $this->resetAfterTest();
-        [, , $user] = $this->setup_activity();
+        [$course, , $user] = $this->setup_activity();
+        $DB->insert_record('local_zoomattendance_idmap', (object) ['courseid' => $course->id,
+            'identitykey' => 'z:' . sha1('x'), 'userid' => $user->id, 'timecreated' => time()]);
         delete_user($user);
         $this->assertFalse($DB->record_exists('local_zoomattendance_result', ['userid' => $user->id]));
+        $this->assertFalse($DB->record_exists('local_zoomattendance_idmap', ['userid' => $user->id]));
     }
 
     public function test_course_reset_mirrors_mod_zoom(): void {
         global $DB, $CFG;
         $this->resetAfterTest();
         require_once($CFG->dirroot . '/course/lib.php');
-        [$course] = $this->setup_activity();
+        [$course, , $user] = $this->setup_activity();
+        $DB->insert_record('local_zoomattendance_idmap', (object) ['courseid' => $course->id,
+            'identitykey' => 'z:' . sha1('x'), 'userid' => $user->id, 'timecreated' => time()]);
         $this->assertSame(1, $DB->count_records('local_zoomattendance_result'));
 
-        reset_course_userdata((object) ['id' => $course->id, 'reset_zoom_all' => 1, 'reset_start_date_old' => $course->startdate]);
+        // A reset that leaves the Zoom data alone keeps the links.
+        reset_course_userdata((object) ['id' => $course->id, 'reset_start_date_old' => $course->startdate]);
+        $this->assertSame(1, $DB->count_records('local_zoomattendance_idmap'));
+        $this->assertSame(1, $DB->count_records('local_zoomattendance_result'));
+
+        reset_course_userdata((object) ['id' => $course->id, 'reset_zoom_all' => 1,
+            'reset_start_date_old' => $course->startdate]);
         $this->assertSame(0, $DB->count_records('zoom_meeting_participants'));
         $this->assertSame(0, $DB->count_records('local_zoomattendance_result'));
+        $this->assertSame(0, $DB->count_records('local_zoomattendance_idmap'));
     }
 }

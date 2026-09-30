@@ -1,7 +1,7 @@
 # local_zoomattendance — Architecture (design only)
 
-Status: **phase 1 implemented.** Decisions D1–D16 record the adopted choices; section B13 lists where
-the phase 1 code differs from or refines this design.
+Status: **phases 1 and 2 implemented.** Decisions D1–D16 record the adopted choices; sections B13
+and B14 list where the code differs from or refines this design.
 Scope: a Moodle local plugin that turns data `mod_zoom` has already stored
 about sessions and participants into per-occurrence attendance (present / late / absent)
 with reports.
@@ -716,9 +716,8 @@ Phase 1 implements B1–B12 with decisions D1–D16, except for the items below.
   the meeting did not happen or `get_meeting_reports` has not run yet). This stops
   everyone being marked absent during the up-to-6-hour gap before mod_zoom imports a
   report. Cancelled and excluded occurrences are shown but never counted.
-* **Deferred to phase 2:** manual matching (`local_zoomattendance_idmap`, D6) and manually
-  overriding an inferred window (`source = manual`, second half of D11). Teachers can
-  already exclude and re-include an occurrence.
+* **Deferred to phase 2** (now done, see B14): manual matching (`local_zoomattendance_idmap`,
+  D6) and manually overriding an inferred window (`source = manual`, second half of D11).
 * **Capabilities:** `viewemail` and `configure` from B6 were dropped. Unmatched
   participants' emails are never displayed (only a hashed key is stored), and site
   defaults use the normal admin settings page.
@@ -740,6 +739,33 @@ Phase 1 implements B1–B12 with decisions D1–D16, except for the items below.
   with mod_zoom v5.5.1, together with Moodle's own privacy compliance tests.
   `.github/workflows/ci.yml` runs `moodle-plugin-ci` on Moodle 4.1 (PHP 8.0), 4.5
   (MariaDB) and 5.0.
+
+## B14. Phase 2 implementation notes
+
+Phase 2 completes D6 (manual matching) and the second half of D11 (manual windows).
+
+* **Identity links (`local_zoomattendance_idmap`).** One row per course and `z:` identity key,
+  pointing at an enrolled user, plus the Zoom name for reference. During recompute an
+  unmatched segment whose key is linked counts as that user: its intervals join the user's
+  own before clipping and union, so overlapping time is not double counted. The result's
+  `matchstrength` is 3 ("Linked by teacher"). Removing a link restores the unmatched row.
+* **Scope and capability.** Links apply to every Zoom activity in the course, so creating or
+  removing one requires `local/zoomattendance:manage` in the **course** context. Only users
+  enrolled in the course can be chosen.
+* **Manual windows.** Only inferred (or already manual) occurrences can be edited. Scheduled
+  windows keep coming from mod_zoom's calendar. Saving sets `source = manual` and a new
+  `m:` key, so a later cluster of the same sessions can never collide with it. Manual
+  occurrences are fixed for session mapping, like scheduled ones, and are never deleted by the
+  sync. *Revert* deletes the manual occurrence, and the next sync infers it again.
+* **Recompute guarantee.** Both changes set `timecomputed = 0` on the affected occurrences
+  before syncing, and the sync always recomputes such occurrences. So a change made while
+  another sync holds the lock still applies on the next scheduled sync.
+* **Lifecycle and privacy.** Links are personal data in the **course** context: the privacy
+  provider exports and deletes them there. They are removed when the user or the course is
+  deleted, and on course reset only when mod_zoom's data is reset too (`reset_zoom_all`),
+  since they describe that data. Other resets keep them.
+* **Upgrade.** Version `2026100100` (0.2.0) creates the table in `db/upgrade.php`. Upgrading an
+  existing 0.1.0 install keeps all stored results.
 
 ---
 

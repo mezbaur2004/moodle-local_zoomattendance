@@ -36,6 +36,15 @@ class sync {
     public const SOURCE_SCHEDULE = 'schedule';
     /** @var string Occurrence inferred from actual sessions. */
     public const SOURCE_INFERRED = 'inferred';
+    /** @var string Inferred occurrence whose window a teacher set. */
+    public const SOURCE_MANUAL = 'manual';
+
+    /** @var int Matched by mod_zoom without an email match. */
+    public const MATCH_WEAK = 1;
+    /** @var int Matched by mod_zoom with an email or API identifier match. */
+    public const MATCH_EMAIL = 2;
+    /** @var int Linked to the user by a teacher (local_zoomattendance_idmap). */
+    public const MATCH_MANUAL = 3;
 
     /** @var int Occurrence counts normally. */
     public const STATUS_ACTIVE = 0;
@@ -69,6 +78,23 @@ class sync {
         }
         self::delete_orphans();
         return $count;
+    }
+
+    /**
+     * Recompute every activity of a course that is enabled or already has data. Used after a
+     * change that affects all of them, such as a new identity link or a course reset.
+     *
+     * @param int $courseid
+     */
+    public static function resync_course(int $courseid): void {
+        global $DB;
+        foreach (zoom_source::get_instances($courseid) as $instance) {
+            $enabled = settings::from_override(zoom_source::override_from_instance($instance))->enabled;
+            if (!$enabled && !$DB->record_exists('local_zoomattendance_occ', ['zoomid' => $instance->id])) {
+                continue;
+            }
+            self::sync_instance($instance, true);
+        }
     }
 
     /**
@@ -106,12 +132,13 @@ class sync {
         $dirty = self::snapshot_schedule($instance);
 
         $occurrences = $DB->get_records('local_zoomattendance_occ', ['zoomid' => $zoomid]);
+        // Teacher-set windows are fixed like scheduled ones: sessions map to them first.
         $scheduled = array_filter($occurrences, function ($o) {
-            return $o->source === self::SOURCE_SCHEDULE;
+            return $o->source === self::SOURCE_SCHEDULE || $o->source === self::SOURCE_MANUAL;
         });
         $sessions = zoom_source::get_sessions($zoomid);
 
-        // Map sessions: scheduled occurrences first, clusters of the rest become inferred ones.
+        // Map sessions: fixed occurrences first, clusters of the rest become inferred ones.
         $map = occurrence_mapper::map_to_scheduled($sessions, $scheduled, $earlymargin, $latemargin);
         $unmapped = array_diff_key($sessions, $map);
         $inferredbykey = [];
@@ -197,9 +224,11 @@ class sync {
         foreach ($map as $detailsid => $occurrenceid) {
             $bydetails[$occurrenceid][$detailsid] = $sessions[$detailsid];
         }
+        $idmap = self::get_idmap((int) $instance->course);
         foreach ($occurrences as $occurrence) {
-            if ($recomputeall || isset($dirty[$occurrence->id])) {
-                self::recompute_occurrence($occurrence, $bydetails[$occurrence->id] ?? []);
+            // A zero timecomputed marks an occurrence a teacher change left for recompute.
+            if ($recomputeall || isset($dirty[$occurrence->id]) || (int) $occurrence->timecomputed === 0) {
+                self::recompute_occurrence($occurrence, $bydetails[$occurrence->id] ?? [], $idmap);
             }
         }
     }
@@ -319,8 +348,9 @@ class sync {
      *
      * @param \stdClass $occurrence
      * @param \stdClass[] $sessions Sessions mapped to it, keyed by details id.
+     * @param int[] $idmap Teacher-confirmed links, identity key => userid (see get_idmap()).
      */
-    public static function recompute_occurrence(\stdClass $occurrence, array $sessions): void {
+    public static function recompute_occurrence(\stdClass $occurrence, array $sessions, array $idmap = []): void {
         global $DB;
         $start = (int) $occurrence->timestart;
         $end = (int) $occurrence->timeend;
@@ -329,7 +359,7 @@ class sync {
         $spans = array_map([occurrence_mapper::class, 'span'], $sessions);
         $actualsecs = calculator::summarise($spans, $start, $end)->attendedsecs;
 
-        $identities = self::group_by_identity(zoom_source::get_participants(array_keys($sessions)));
+        $identities = self::group_by_identity(zoom_source::get_participants(array_keys($sessions)), $idmap);
         $strength = self::match_strengths($identities);
 
         $computed = [];
@@ -379,12 +409,14 @@ class sync {
      * Group participant segments by identity.
      *
      * A segment that mod_zoom stored both with and without a userid (a later re-match inserts
-     * a second row) is kept only in its matched form.
+     * a second row) is kept only in its matched form. An unmatched participant whose identity a
+     * teacher linked to a user counts as that user; their segments merge with the user's own.
      *
      * @param \stdClass[] $participants zoom_meeting_participants rows.
-     * @return \stdClass[] identity key => {userid, name, emails[], intervals[]}.
+     * @param int[] $idmap identity key => userid.
+     * @return \stdClass[] identity key => {userid, manual, name, emails[], intervals[]}.
      */
-    public static function group_by_identity(array $participants): array {
+    public static function group_by_identity(array $participants, array $idmap = []): array {
         $matchedsegments = [];
         foreach ($participants as $p) {
             if (!empty($p->userid)) {
@@ -398,10 +430,27 @@ class sync {
             if ($userid === null && isset($matchedsegments[self::segment_key($p)])) {
                 continue;
             }
-            $key = $userid ? 'u:' . $userid : self::unmatched_key($p);
-            if (!isset($identities[$key])) {
-                $identities[$key] = (object) ['userid' => $userid, 'name' => '', 'emails' => [], 'intervals' => []];
+            $manual = false;
+            if ($userid === null) {
+                $key = self::unmatched_key($p);
+                if (isset($idmap[$key])) {
+                    $userid = (int) $idmap[$key];
+                    $manual = true;
+                }
             }
+            if ($userid) {
+                $key = 'u:' . $userid;
+            }
+            if (!isset($identities[$key])) {
+                $identities[$key] = (object) [
+                    'userid' => $userid,
+                    'manual' => false,
+                    'name' => '',
+                    'emails' => [],
+                    'intervals' => [],
+                ];
+            }
+            $identities[$key]->manual = $identities[$key]->manual || $manual;
             $identities[$key]->intervals[] = [(int) $p->join_time, (int) $p->leave_time];
             if ((string) $p->name !== '') {
                 $identities[$key]->name = (string) $p->name;
@@ -443,8 +492,9 @@ class sync {
     }
 
     /**
-     * Match strength per matched user: 2 when a segment's email equals the user's email or
-     * mod_zoom API identifier, 1 otherwise (name, "(id)Name" prefix or fuzzy match).
+     * Match strength per matched user: MATCH_MANUAL when a teacher linked any of the segments,
+     * MATCH_EMAIL when a segment's email equals the user's email or mod_zoom API identifier,
+     * MATCH_WEAK otherwise (name, "(id)Name" prefix or fuzzy match).
      *
      * @param \stdClass[] $identities From group_by_identity().
      * @return int[] userid => strength.
@@ -474,9 +524,31 @@ class sync {
                     $known[] = \core_text::strtolower(trim((string) $user->$field));
                 }
             }
-            $strength[$identity->userid] = array_intersect_key(array_flip(array_filter($known)), $identity->emails) ? 2 : 1;
+            if ($identity->manual) {
+                $strength[$identity->userid] = self::MATCH_MANUAL;
+            } else if (array_intersect_key(array_flip(array_filter($known)), $identity->emails)) {
+                $strength[$identity->userid] = self::MATCH_EMAIL;
+            } else {
+                $strength[$identity->userid] = self::MATCH_WEAK;
+            }
         }
         return $strength;
+    }
+
+    /**
+     * Teacher-confirmed identity links of a course.
+     *
+     * @param int $courseid
+     * @return int[] identity key => userid.
+     */
+    public static function get_idmap(int $courseid): array {
+        global $DB;
+        return array_map('intval', $DB->get_records_menu(
+            'local_zoomattendance_idmap',
+            ['courseid' => $courseid],
+            '',
+            'identitykey, userid'
+        ));
     }
 
     /**
@@ -517,6 +589,10 @@ class sync {
         $DB->delete_records_select(
             'local_zoomattendance_setting',
             'cmid NOT IN (SELECT id FROM {course_modules})'
+        );
+        $DB->delete_records_select(
+            'local_zoomattendance_idmap',
+            'courseid NOT IN (SELECT id FROM {course})'
         );
     }
 }

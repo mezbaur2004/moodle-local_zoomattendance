@@ -39,6 +39,8 @@ require_login($course, false, $cm);
 $context = context_module::instance($cm->id);
 require_capability('local/zoomattendance:viewreports', $context);
 $canmanage = has_capability('local/zoomattendance:manage', $context);
+// Identity links apply to every Zoom activity in the course, so they need the course-level capability.
+$canlink = has_capability('local/zoomattendance:manage', context_course::instance($course->id));
 
 $baseurl = new moodle_url('/local/zoomattendance/report.php', ['id' => $cm->id]);
 $url = $occurrenceid ? new moodle_url($baseurl, ['occurrence' => $occurrenceid]) : $baseurl;
@@ -179,7 +181,7 @@ if ($nogroupaccess) {
     echo $output->heading(renderer::window($occurrences[$occurrenceid]), 3);
     echo html_writer::tag('p', $output->badge($evaluation->state) . ' ' .
         get_string('denominatorinfo', 'local_zoomattendance', renderer::duration($evaluation->denominator)));
-    echo $output->occurrence_detail($attendance, $evaluation);
+    echo $output->occurrence_detail($attendance, $evaluation, $canlink);
     echo $output->download_dataformat_selector(
         get_string('download'),
         $url->out_omit_querystring(),
@@ -206,10 +208,17 @@ if ($nogroupaccess) {
         }
         echo $output->occurrence_list($attendance, $evaluations, $baseurl, $canmanage, $masked);
     }
-    echo html_writer::link(
+    $links = [html_writer::link(
         new moodle_url('/mod/zoom/report.php', ['id' => $cm->id]),
         get_string('zoomsessionsreport', 'local_zoomattendance')
-    );
+    )];
+    if ($canlink) {
+        $links[] = html_writer::link(
+            new moodle_url('/local/zoomattendance/link.php', ['id' => $cm->id]),
+            get_string('identitylinks', 'local_zoomattendance')
+        );
+    }
+    echo html_writer::tag('p', implode(' · ', $links));
 }
 
 echo $output->footer();
