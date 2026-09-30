@@ -89,7 +89,7 @@ automatic matching cannot:
 - **Unmatched participants.** In an occurrence's detail, *Link to user* next to an unmatched
   Zoom participant (for example "iPhone" or a personal email) links that Zoom identity to an
   enrolled user. The link applies to every Zoom activity in the course, past and future. The
-  participant's time merges with the user's own, and the user is marked *Linked by teacher*.
+  participant's time merges with the user's own, and the user is marked *Linked manually*.
   *Zoom identity links*, at the bottom of the activity report, lists the course's links and
   can remove them.
 - **Inferred windows.** For occurrences inferred from sessions (meetings without a fixed time),
@@ -128,11 +128,18 @@ Zoom classes.
   flagged.
 
 **Pages:**
-- *Teacher attendance*, linked from the course's Zoom attendance page: one row per teacher and
-  one column per class.
-- *Teacher Zoom attendance*, under *Site administration > Reports* and in the category menu:
-  one row per teacher and course, with a date range and category filter.
+- *Teacher attendance*, linked from the course's Zoom attendance page: one row per class, in
+  date order, and one column per teacher, with each teacher's attendance and counts at the
+  bottom. A date filter defaults to the course's first class. The download has one row per
+  class and teacher.
+- *Teacher attendance: all courses*, under *Site administration > Reports* and in the category
+  menu: one row per teacher and course, with a date range (default the last 30 days) and a
+  category filter. Filtered pages can be bookmarked.
 - *My teaching attendance*, on a teacher's own profile.
+
+Each page has a *What the statuses mean* legend. Besides Present, Partial and Absent, a class
+can show *Not held* (counts as absent), *Excluded*, *Awaiting Zoom report* or *Zoom data reset*
+(none of these three counts).
 
 Managers see every teacher. A teacher sees only their own figures, and other teachers are
 hidden from them in the existing reports too.

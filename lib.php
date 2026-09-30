@@ -111,7 +111,7 @@ function local_zoomattendance_myprofile_navigation(core_user\output\myprofile\tr
     $added = false;
     if (
         $iscurrentuser && \local_zoomattendance\local\settings::teacher_tracking()
-            && get_user_capability_course('local/zoomattendance:viewownteacher', $user->id, true, '', '', 1)
+            && \local_zoomattendance\local\teacher_overview::has_courses((int) $user->id, 'local/zoomattendance:viewownteacher')
     ) {
         $tree->add_node(new core_user\output\myprofile\node(
             'reports',

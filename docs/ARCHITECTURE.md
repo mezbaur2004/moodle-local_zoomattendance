@@ -761,7 +761,7 @@ Phase 2 completes D6 (manual matching) and the second half of D11 (manual window
   pointing at an enrolled user, plus the Zoom name for reference. During recompute an
   unmatched segment whose key is linked counts as that user: its intervals join the user's
   own before clipping and union, so overlapping time is not double counted. The result's
-  `matchstrength` is 3 ("Linked by teacher"). Removing a link restores the unmatched row.
+  `matchstrength` is 3 ("Linked manually"; "Linked by teacher" before 0.3.1). Removing a link restores the unmatched row.
 * **Scope and capability.** Links apply to every Zoom activity in the course, so creating or
   removing one requires `local/zoomattendance:manage` in the **course** context. Only users
   enrolled in the course can be chosen.
@@ -925,13 +925,14 @@ phase 3 adds the following:
 ## C7. Pages
 
 * **Per-course teacher page** — `teachers.php?id=<courseid>`.
-  * Rows are expected teachers. Columns are occurrences that are evaluated for teachers (with a
-    session, or Not held), grouped by activity as in the course summary. Then Course overall %.
+  * Since 0.3.1 (C12): rows are classes in date order and columns are teachers, with each
+    teacher's attendance and counts in the footer. Up to 0.3.0 rows were teachers and columns
+    were occurrences.
   * Each cell shows status and %, plus the late-start and early-leave minutes when they are not
-    zero. Not held and excluded occurrences are labelled, and excluded ones name who excluded
-    them.
-  * It has a download, and is linked from the course summary page for viewers with either
-    capability.
+    zero. Not held, excluded, awaiting and reset classes show their own badge, and excluded
+    ones name who excluded them.
+  * It has a date filter and a download, and is linked from the course summary page for
+    viewers with either capability.
 * **Central list** — `teachersoverview.php`.
   * One row per teacher and course, across every course where the viewer has
     `viewteacherreports` (`get_user_capability_course()`).
@@ -1031,6 +1032,52 @@ so on large sites the date filter bounds the work. Caching is left until it is m
     compliance tests.
   * Upgrading 0.2.3 to 0.3.0 keeps all results, and `check_database_schema.php` reports no
     differences.
+
+## C12. 0.3.1 usability review
+
+A review on realistic mock data led to these changes. The data covered four courses in two
+categories and a subcategory, seven teachers, a site manager, a category manager and
+students. It included rejoins, two sessions for one class, a Not held class, a reset course,
+self-links and links by others, exclusions and windows, a late enrolment, and a teacher
+without Zoom courses.
+
+* **Per-course page transposed.** With six classes the old one-column-per-class table already
+  ran off the screen with no visible scrollbar. Classes now run down the page, and teachers
+  (usually few) across it.
+* **Every state has its own badge in the cell.** A Not held class used to read "Absent 0.0%",
+  with "Not held" only under the date. Awaiting and reset classes are now listed, uncounted,
+  instead of missing without explanation. The C4 design already said awaiting classes are
+  shown.
+* **A legend** (*What the statuses mean*) replaces the thresholds sentence. It uses the site's
+  teacher thresholds.
+* **The same date filter on both pages**, with a "Showing classes from … to …" line. The course
+  page ignored dates while the list used the last 30 days, so their numbers disagreed. The
+  course page defaults to its first class, because course start dates are often later than
+  the classes or unset.
+* **Bookmarkable filters.** The moodleform GET submission put a session key in the URL, so a
+  bookmarked filter silently fell back to the defaults. Submitting now redirects to a plain
+  `fromts`/`tots`/`category` URL, and the list's course links keep the range.
+* **Category filter.** It is a plain select, listing only categories that hold the viewer's
+  courses and their parents. Previously an autocomplete showed a "× All" chip and every
+  category.
+* **Wording.** The list's columns are *Classes*, *Of which not held* and *Attendance*. The
+  central list is *Teacher attendance: all courses*. The identity-link badge is *Linked
+  manually*, because managers link too. In an occurrence's detail, managers see a *Teacher*
+  badge on teachers under "Matched but not expected".
+* **Downloads.** The course CSV has one row per class and teacher, with minutes late and early
+  as numbers. The list CSV adds the category. File names carry the date range.
+* **Empty states** say what to change (a wider range, another category). A teacher without Zoom
+  courses gets a message instead of a permission error.
+* **Bugs fixed.**
+  * The *Self-linked* flag was set whenever the teacher had ever self-linked and had any
+    manually linked time in the class, even time linked by someone else. It now checks that
+    one of the teacher's self-linked identities has Zoom time inside that class.
+  * The profile offered *My teaching attendance* to teachers whose courses have no Zoom
+    activity, which led to a permission error.
+  * The end of the "To" day is the next local midnight, correct across daylight saving
+    changes.
+  * Grey badges had white text on light grey.
+  * Occurrence times mixed 24- and 12-hour formats.
 
 ---
 

@@ -161,95 +161,137 @@ class renderer extends \plugin_renderer_base {
     }
 
     /**
-     * Teacher attendance table for one course: one column per counted or excluded occurrence,
-     * grouped by activity, and the course overall percentage.
+     * Teacher attendance for one course: one row per class, in date order, and one column per
+     * teacher, with each teacher's attendance and counts at the bottom.
      *
      * @param teacher_summary $summary
      * @return string
      */
     public function teacher_table(teacher_summary $summary): string {
-        $top = [html_writer::tag('th', get_string('teacher', 'local_zoomattendance'), [
-            'rowspan' => 2,
-            'class' => 'local-zoomattendance-name',
-        ])];
-        $dates = [];
-        foreach ($summary->activities as $cmid => $activity) {
-            $top[] = html_writer::tag('th', html_writer::link(
-                new moodle_url('/local/zoomattendance/report.php', ['id' => $cmid]),
-                format_string($activity->cm->name)
-            ), ['colspan' => count($activity->columns), 'class' => 'text-center']);
-            foreach ($activity->columns as $occurrenceid => $occurrence) {
-                $label = html_writer::link(
-                    new moodle_url('/local/zoomattendance/report.php', ['id' => $cmid, 'occurrence' => $occurrenceid]),
-                    userdate($occurrence->timestart, get_string('strftimedatetimeshort', 'langconfig'))
-                );
-                $note = self::column_note($summary, $activity->states[$occurrenceid], $occurrenceid);
-                if ($note !== '') {
-                    $label .= html_writer::div(s($note), 'small text-muted');
-                }
-                $dates[] = html_writer::tag('th', $label, ['class' => 'text-nowrap']);
-            }
+        $head = [
+            html_writer::tag('th', get_string('date'), ['scope' => 'col']),
+            html_writer::tag('th', get_string('class', 'local_zoomattendance'), ['scope' => 'col']),
+        ];
+        foreach ($summary->users as $user) {
+            $head[] = html_writer::tag('th', fullname($user), ['scope' => 'col']);
         }
-        $top[] = html_writer::tag('th', get_string('courseoverall', 'local_zoomattendance'), ['rowspan' => 2]);
-        $head = html_writer::tag('tr', implode('', $top)) . html_writer::tag('tr', implode('', $dates));
 
         $body = '';
-        foreach ($summary->users as $userid => $user) {
-            $cells = [html_writer::tag('th', fullname($user), ['class' => 'local-zoomattendance-name', 'scope' => 'row'])];
-            foreach ($summary->activities as $activity) {
-                foreach ($activity->columns as $occurrenceid => $occurrence) {
-                    $row = $summary->cells[$userid][$occurrenceid] ?? null;
-                    $cells[] = html_writer::tag('td', $row ? $this->teacher_cell(
-                        $row,
-                        $activity->states[$occurrenceid],
-                        isset($summary->selflinkers[$userid])
-                    ) : '–');
-                }
+        foreach ($summary->classes as $class) {
+            $occurrence = $class->occurrence;
+            $label = html_writer::link(
+                new moodle_url('/local/zoomattendance/report.php', ['id' => $class->cm->id, 'occurrence' => $occurrence->id]),
+                format_string($class->cm->name)
+            );
+            $note = self::class_note($summary, $class->state, (int) $occurrence->id);
+            if ($note !== '') {
+                $label .= html_writer::div(s($note), 'small text-muted');
             }
-            $cells[] = html_writer::tag('td', self::overall($summary->overall[$userid] ?? null));
+            $cells = [
+                html_writer::tag('th', s(self::window($occurrence)), ['scope' => 'row']),
+                html_writer::tag('td', $label),
+            ];
+            foreach ($summary->users as $userid => $user) {
+                $row = $summary->cells[$userid][$occurrence->id] ?? null;
+                $cells[] = html_writer::tag('td', $row
+                    ? $this->teacher_cell($row, $class->state, isset($summary->selflinked[$userid][$occurrence->id]))
+                    : html_writer::span('–', '', ['title' => get_string('notexpectedteacher', 'local_zoomattendance')]));
+            }
             $body .= html_writer::tag('tr', implode('', $cells));
         }
 
-        $table = html_writer::tag('table', html_writer::tag('thead', $head) . html_writer::tag('tbody', $body), [
-            'class' => 'generaltable table-sm local-zoomattendance-course',
+        $overall = [html_writer::tag('th', get_string('teacheroverall', 'local_zoomattendance'), [
+            'scope' => 'row',
+            'colspan' => 2,
+        ])];
+        $counts = [html_writer::tag('th', get_string('classescounted', 'local_zoomattendance'), [
+            'scope' => 'row',
+            'colspan' => 2,
+        ])];
+        foreach ($summary->users as $userid => $user) {
+            $percentage = self::overall($summary->overall[$userid] ?? null) ?: '–';
+            $overall[] = html_writer::tag('td', html_writer::tag('strong', $percentage));
+            $counts[] = html_writer::tag('td', s(self::teacher_counts($summary->stats[$userid] ?? teacher_summary::empty_stats())));
+        }
+        $foot = html_writer::tag('tr', implode('', $overall)) . html_writer::tag('tr', implode('', $counts));
+
+        $table = html_writer::tag('table', html_writer::tag('thead', html_writer::tag('tr', implode('', $head))) .
+            html_writer::tag('tbody', $body) . html_writer::tag('tfoot', $foot), [
+            'class' => 'generaltable table-sm local-zoomattendance-teachers',
         ]);
-        return html_writer::div($table, 'table-responsive local-zoomattendance-scroll');
+        return html_writer::div($table, 'table-responsive');
     }
 
     /**
-     * Note under a teacher column's date: not held, or who excluded it.
+     * What each teacher status means, with the site's teacher thresholds.
+     *
+     * @param \local_zoomattendance\local\settings $settings Teacher thresholds.
+     * @return string
+     */
+    public function teacher_legend(\local_zoomattendance\local\settings $settings): string {
+        $a = (object) [
+            'present' => $settings->presentpct,
+            'partial' => $settings->latepct,
+            'grace' => $settings->lategracemins,
+        ];
+        $items = [
+            status::PRESENT => get_string('legend_present', 'local_zoomattendance', $a),
+            status::PARTIAL => get_string('legend_partial', 'local_zoomattendance', $a),
+            status::ABSENT => get_string('legend_absent', 'local_zoomattendance', $a),
+            teacher_attendance::STATE_NOTHELD => get_string('legend_notheld', 'local_zoomattendance'),
+            attendance::STATE_EXCLUDED => get_string('legend_excluded', 'local_zoomattendance'),
+            teacher_attendance::STATE_AWAITING => get_string('legend_awaiting', 'local_zoomattendance'),
+            attendance::STATE_RESET => get_string('legend_reset', 'local_zoomattendance'),
+        ];
+        $list = '';
+        foreach ($items as $status => $text) {
+            $list .= html_writer::tag('li', $this->badge($status) . ' ' . s($text));
+        }
+        $list .= html_writer::tag('li', s(get_string('legend_minutes', 'local_zoomattendance', $a)));
+        $list .= html_writer::tag('li', s(get_string('legend_selflinked', 'local_zoomattendance')));
+        return html_writer::tag('details', html_writer::tag('summary', get_string('legend', 'local_zoomattendance')) .
+            html_writer::tag('ul', $list, ['class' => 'list-unstyled mt-2 mb-0']), ['class' => 'mb-3']);
+    }
+
+    /**
+     * Note under a class: not held, awaiting, reset, or who excluded it.
      *
      * @param teacher_summary $summary
      * @param string $state
      * @param int $occurrenceid
      * @return string Plain text.
      */
-    public static function column_note(teacher_summary $summary, string $state, int $occurrenceid): string {
-        if ($state === teacher_attendance::STATE_NOTHELD) {
-            return get_string('status_notheld', 'local_zoomattendance');
+    public static function class_note(teacher_summary $summary, string $state, int $occurrenceid): string {
+        switch ($state) {
+            case teacher_attendance::STATE_NOTHELD:
+                return get_string('note_notheld', 'local_zoomattendance');
+            case teacher_attendance::STATE_AWAITING:
+                return get_string('note_awaiting', 'local_zoomattendance');
+            case attendance::STATE_RESET:
+                return get_string('note_reset', 'local_zoomattendance');
+            case attendance::STATE_EXCLUDED:
+                $by = $summary->excludedby[$occurrenceid] ?? null;
+                return $by ? get_string('excludedby', 'local_zoomattendance', fullname($by))
+                    : get_string('status_excluded', 'local_zoomattendance');
         }
-        if ($state !== attendance::STATE_EXCLUDED) {
-            return '';
-        }
-        $by = $summary->excludedby[$occurrenceid] ?? null;
-        return $by ? get_string('excludedby', 'local_zoomattendance', fullname($by))
-            : get_string('status_excluded', 'local_zoomattendance');
+        return '';
     }
 
     /**
-     * One teacher cell: status and percentage, then late start, early leave and self-link notes.
+     * One teacher cell: a status badge and percentage, then late start, early leave and
+     * self-link notes. Not held, excluded, awaiting and reset classes show their own badge.
      *
      * @param \stdClass $row From teacher_attendance::evaluate().
      * @param string $state The occurrence's teacher state.
-     * @param bool $selflinker Whether the teacher linked an identity to themself in the course.
+     * @param bool $selflinked Whether the teacher's time here includes an identity they linked to themself.
      * @return string
      */
-    public function teacher_cell(\stdClass $row, string $state, bool $selflinker): string {
-        if ($state === attendance::STATE_EXCLUDED) {
-            return $this->badge(attendance::STATE_EXCLUDED);
+    public function teacher_cell(\stdClass $row, string $state, bool $selflinked): string {
+        if ($state !== attendance::STATE_EVALUATED) {
+            return $this->badge($state);
         }
         $output = $this->status_cell($row->status, $row->percentage);
-        $notes = self::teacher_notes($row, $selflinker);
+        $notes = self::teacher_notes($row, $selflinked);
         if ($notes) {
             $output .= html_writer::div(s(implode(' · ', $notes)), 'small text-muted');
         }
@@ -257,29 +299,29 @@ class renderer extends \plugin_renderer_base {
     }
 
     /**
-     * One teacher cell as plain text, for downloads.
+     * A teacher's counts as a sentence.
      *
-     * @param \stdClass $row
-     * @param string $state
-     * @param bool $selflinker
+     * @param int[] $stats From teacher_summary::empty_stats().
      * @return string
      */
-    public static function teacher_text(\stdClass $row, string $state, bool $selflinker): string {
-        if ($state === attendance::STATE_EXCLUDED) {
-            return get_string('status_excluded', 'local_zoomattendance');
-        }
-        $parts = array_merge([self::status_text($row->status, $row->percentage)], self::teacher_notes($row, $selflinker));
-        return implode('; ', $parts);
+    public static function teacher_counts(array $stats): string {
+        return get_string('teachercounts', 'local_zoomattendance', (object) [
+            'classes' => $stats['expected'],
+            'present' => $stats[status::PRESENT],
+            'partial' => $stats[status::PARTIAL],
+            'absent' => $stats[status::ABSENT],
+            'notheld' => $stats['notheld'],
+        ]);
     }
 
     /**
      * Late start, early leave and self-link notes for a teacher row.
      *
      * @param \stdClass $row
-     * @param bool $selflinker
+     * @param bool $selflinked Whether the time includes an identity the teacher linked to themself.
      * @return string[] Plain text.
      */
-    protected static function teacher_notes(\stdClass $row, bool $selflinker): array {
+    public static function teacher_notes(\stdClass $row, bool $selflinked): array {
         $notes = [];
         if ($row->latesecs >= MINSECS) {
             $notes[] = get_string('latestartmins', 'local_zoomattendance', intdiv($row->latesecs, MINSECS));
@@ -287,7 +329,7 @@ class renderer extends \plugin_renderer_base {
         if ($row->earlysecs >= MINSECS) {
             $notes[] = get_string('earlyleavemins', 'local_zoomattendance', intdiv($row->earlysecs, MINSECS));
         }
-        if ($row->manualmatch && $selflinker) {
+        if ($selflinked) {
             $notes[] = get_string('selflinked', 'local_zoomattendance');
         }
         return $notes;
@@ -320,7 +362,8 @@ class renderer extends \plugin_renderer_base {
         $variant = $classes[$status] ?? 'secondary';
         return html_writer::span(
             get_string('status_' . $status, 'local_zoomattendance'),
-            "badge badge-{$variant} bg-{$variant} text-white"
+            // Light badges need dark text to stay readable.
+            "badge badge-{$variant} bg-{$variant} " . ($variant === 'secondary' ? 'text-dark' : 'text-white')
         );
     }
 
@@ -331,9 +374,11 @@ class renderer extends \plugin_renderer_base {
      * @return string
      */
     public static function window(\stdClass $occurrence): string {
-        $start = userdate($occurrence->timestart, get_string('strftimedatetimeshort', 'langconfig'));
+        // Date, then both times in the same (user's) time format.
+        $date = userdate($occurrence->timestart, get_string('strftimedatefullshort', 'langconfig'));
+        $start = userdate($occurrence->timestart, get_string('strftimetime', 'langconfig'));
         $end = userdate($occurrence->timeend, get_string('strftimetime', 'langconfig'));
-        return "$start – $end";
+        return "$date, $start – $end";
     }
 
     /**
@@ -528,6 +573,14 @@ class renderer extends \plugin_renderer_base {
                     get_string('manualmatch', 'local_zoomattendance'),
                     'badge badge-info bg-info text-white',
                     ['title' => get_string('manualmatch_help', 'local_zoomattendance')]
+                );
+            }
+            // Teachers only reach this list for managers; their figures are on the teacher pages.
+            if (!$withstatus && $attendance->is_teacher((int) $row->user->id)) {
+                $name .= ' ' . html_writer::span(
+                    get_string('teacher', 'local_zoomattendance'),
+                    'badge badge-secondary bg-secondary text-dark',
+                    ['title' => get_string('teacherbadge_help', 'local_zoomattendance')]
                 );
             }
             $cells = [$name];

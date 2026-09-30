@@ -133,7 +133,10 @@ final class observer_test extends \advanced_testcase {
         $statuses = $DB->get_records_menu('local_zoomattendance_occ', null, '', 'zoomid, status');
         $this->assertEquals([$cm->instance => sync::STATUS_RESET, $future->instance => sync::STATUS_ACTIVE], $statuses);
         $this->assertSame(0, $DB->count_records('local_zoomattendance_result'));
-        $this->assertArrayNotHasKey($teacher->id, \local_zoomattendance\local\teacher_summary::build($course)->stats);
+        // The reset class is listed so managers can see it, but it counts for nobody.
+        $summary = \local_zoomattendance\local\teacher_summary::build($course);
+        $this->assertSame(0, $summary->stats[$teacher->id]['expected']);
+        $this->assertSame(\local_zoomattendance\local\attendance::STATE_RESET, $summary->classes[0]->state);
     }
 
     public function test_user_deleted_keeps_their_changes_anonymously(): void {

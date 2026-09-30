@@ -24,7 +24,10 @@
 
 require(__DIR__ . '/../../config.php');
 
+use local_zoomattendance\form\teacher_filter;
+use local_zoomattendance\local\attendance;
 use local_zoomattendance\local\settings;
+use local_zoomattendance\local\teacher_overview;
 use local_zoomattendance\local\teacher_summary;
 use local_zoomattendance\output\renderer;
 
@@ -39,47 +42,71 @@ $canviewall = has_capability('local/zoomattendance:viewteacherreports', $context
 if (!$canviewall) {
     require_capability('local/zoomattendance:viewownteacher', $context);
 }
+// Default range: from the course's first class (the course start date is often later or unset).
+$from = optional_param('fromts', usergetmidnight(teacher_overview::first_class($course->id) ?: time() - 30 * DAYSECS), PARAM_INT);
+$to = optional_param('tots', usergetmidnight(time()), PARAM_INT);
 
-$url = new moodle_url('/local/zoomattendance/teachers.php', ['id' => $course->id]);
+$url = new moodle_url('/local/zoomattendance/teachers.php', ['id' => $course->id, 'fromts' => $from, 'tots' => $to]);
 $PAGE->set_url($url);
-$PAGE->set_title(get_string('teacherattendance', 'local_zoomattendance'));
+$title = get_string($canviewall ? 'teacherattendance' : 'myteaching', 'local_zoomattendance');
+$PAGE->set_title($title . ': ' . format_string($course->shortname, true, ['context' => $context]));
 $PAGE->set_heading(format_string($course->fullname));
 $PAGE->set_pagelayout('incourse');
 
-$tracking = settings::teacher_tracking();
-$summary = $tracking ? teacher_summary::build($course, $canviewall ? null : (int) $USER->id) : null;
+$form = new teacher_filter(new moodle_url('/local/zoomattendance/teachers.php'), ['hidden' => ['id' => PARAM_INT]], 'get');
+$form->set_data(['id' => $course->id, 'from' => $from, 'to' => $to]);
+if ($data = $form->get_data()) {
+    // Keep the filter in a plain URL so it can be bookmarked and reloaded.
+    redirect(new moodle_url($url, ['fromts' => (int) $data->from, 'tots' => (int) $data->to]));
+}
 
-if ($download !== '' && $summary && $summary->activities) {
-    $columns = ['fullname' => get_string('teacher', 'local_zoomattendance')];
-    foreach ($summary->activities as $activity) {
-        foreach ($activity->columns as $occurrenceid => $occurrence) {
-            $columns['o' . $occurrenceid] = format_string($activity->cm->name, true, ['escape' => false]) . ' – ' .
-                userdate($occurrence->timestart, get_string('strftimedatetimeshort', 'langconfig'));
-            $note = renderer::column_note($summary, $activity->states[$occurrenceid], $occurrenceid);
-            if ($note !== '') {
-                $columns['o' . $occurrenceid] .= ' (' . $note . ')';
-            }
-        }
-    }
-    $columns['overall'] = get_string('courseoverall', 'local_zoomattendance');
+$tracking = settings::teacher_tracking();
+$summary = $tracking
+    ? teacher_summary::build($course, $canviewall ? null : (int) $USER->id, $from, teacher_overview::day_end($to))
+    : null;
+
+if ($download !== '' && $summary && $summary->classes) {
+    // One row per class and teacher, so the file sorts and filters well in a spreadsheet.
+    $columns = [
+        'teacher' => get_string('teacher', 'local_zoomattendance'),
+        'course' => get_string('course'),
+        'class' => get_string('class', 'local_zoomattendance'),
+        'date' => get_string('date'),
+        'status' => get_string('status', 'local_zoomattendance'),
+        'percentage' => get_string('percentage', 'local_zoomattendance'),
+        'latemins' => get_string('latemins', 'local_zoomattendance'),
+        'earlymins' => get_string('earlymins', 'local_zoomattendance'),
+        'note' => get_string('note', 'local_zoomattendance'),
+    ];
     $rows = [];
+    $timeformat = get_string('strftimedatetimeshort', 'langconfig');
     foreach ($summary->users as $userid => $user) {
-        $record = ['fullname' => fullname($user)];
-        foreach ($summary->activities as $activity) {
-            foreach ($activity->columns as $occurrenceid => $occurrence) {
-                $row = $summary->cells[$userid][$occurrenceid] ?? null;
-                $record['o' . $occurrenceid] = $row ? renderer::teacher_text(
-                    $row,
-                    $activity->states[$occurrenceid],
-                    isset($summary->selflinkers[$userid])
-                ) : '';
+        foreach ($summary->classes as $class) {
+            $row = $summary->cells[$userid][$class->occurrence->id] ?? null;
+            if (!$row) {
+                continue;
             }
+            $evaluated = $class->state === attendance::STATE_EVALUATED;
+            $notes = array_filter(array_merge(
+                [renderer::class_note($summary, $class->state, (int) $class->occurrence->id)],
+                $evaluated && isset($summary->selflinked[$userid][$class->occurrence->id])
+                    ? [get_string('selflinked', 'local_zoomattendance')] : []
+            ));
+            $rows[] = [
+                'teacher' => fullname($user),
+                'course' => format_string($course->fullname, true, ['context' => $context, 'escape' => false]),
+                'class' => format_string($class->cm->name, true, ['escape' => false]),
+                'date' => userdate($class->occurrence->timestart, $timeformat),
+                'status' => get_string('status_' . ($evaluated ? $row->status : $class->state), 'local_zoomattendance'),
+                'percentage' => $row->percentage === null ? '' : round($row->percentage, 1),
+                'latemins' => $evaluated && $row->firstjoin !== null ? intdiv($row->latesecs, MINSECS) : '',
+                'earlymins' => $evaluated && $row->lastleave !== null ? intdiv($row->earlysecs, MINSECS) : '',
+                'note' => implode('; ', $notes),
+            ];
         }
-        $record['overall'] = renderer::overall($summary->overall[$userid] ?? null);
-        $rows[] = $record;
     }
     \core\dataformat::download_data(
-        clean_filename($course->shortname . '-teacherattendance'),
+        clean_filename($course->shortname . '-teacherattendance-' . userdate($from, '%Y%m%d') . '-' . userdate($to, '%Y%m%d')),
         $download,
         $columns,
         $rows
@@ -90,33 +117,37 @@ if ($download !== '' && $summary && $summary->activities) {
 /** @var renderer $output */
 $output = $PAGE->get_renderer('local_zoomattendance');
 echo $output->header();
-echo $output->heading(get_string('teacherattendance', 'local_zoomattendance'));
+echo $output->heading($title);
 
 if (!$tracking) {
     echo $output->notification(get_string('teachertrackingoff', 'local_zoomattendance'), 'info');
 } else {
-    $thresholds = settings::teacher();
-    echo html_writer::tag('p', get_string('teacherthresholdsinfo', 'local_zoomattendance', (object) [
-        'present' => $thresholds->presentpct,
-        'grace' => $thresholds->lategracemins,
-        'partial' => $thresholds->latepct,
-    ]));
-    if (!$summary->activities) {
-        echo $output->notification(get_string('noteacherdata', 'local_zoomattendance'), 'info');
+    $form->display();
+    echo html_writer::tag('p', get_string('showingrange', 'local_zoomattendance', (object) [
+        'from' => userdate($from, get_string('strftimedate', 'langconfig')),
+        'to' => userdate($to, get_string('strftimedate', 'langconfig')),
+    ]), ['class' => 'text-muted']);
+    echo $output->teacher_legend(settings::teacher());
+    if (!$summary->classes) {
+        echo $output->notification(get_string($canviewall ? 'noteacherclasses' : 'nomyclasses', 'local_zoomattendance'), 'info');
     } else {
         echo html_writer::tag('p', get_string('teachersummary_help', 'local_zoomattendance'), ['class' => 'text-muted']);
         echo $output->teacher_table($summary);
         echo $output->download_dataformat_selector(
-            get_string('download'),
+            get_string('downloadclasses', 'local_zoomattendance'),
             $url->out_omit_querystring(),
             'download',
-            ['id' => $course->id]
+            ['id' => $course->id, 'fromts' => $from, 'tots' => $to]
         );
     }
 }
-$overview = new moodle_url('/local/zoomattendance/teachersoverview.php', $canviewall ? [] : ['mine' => 1]);
-echo html_writer::tag('p', html_writer::link(
-    $overview,
-    get_string($canviewall ? 'teachersoverview' : 'myteaching', 'local_zoomattendance')
-));
+$links = [html_writer::link(
+    new moodle_url('/local/zoomattendance/course.php', ['id' => $course->id]),
+    get_string('courseattendance', 'local_zoomattendance')
+)];
+$links[] = html_writer::link(
+    new moodle_url('/local/zoomattendance/teachersoverview.php', $canviewall ? [] : ['mine' => 1]),
+    get_string($canviewall ? 'teachersoverview' : 'myteachingall', 'local_zoomattendance')
+);
+echo html_writer::tag('p', implode(' · ', $links));
 echo $output->footer();

@@ -229,10 +229,29 @@ class attendance {
         if (!$rows) {
             return $rows;
         }
+        return array_diff_key($rows, $this->teacher_ids());
+    }
+
+    /**
+     * Whether a user is tracked as a teacher in this activity.
+     *
+     * @param int $userid
+     * @return bool
+     */
+    public function is_teacher(int $userid): bool {
+        return isset($this->teacher_ids()[$userid]);
+    }
+
+    /**
+     * Users holding betrackedteacher in the module.
+     *
+     * @return \stdClass[] Keyed by user id.
+     */
+    protected function teacher_ids(): array {
         if ($this->teacherids === null) {
             $this->teacherids = get_users_by_capability($this->context, 'local/zoomattendance:betrackedteacher', 'u.id');
         }
-        return array_diff_key($rows, $this->teacherids);
+        return $this->teacherids;
     }
 
     /**

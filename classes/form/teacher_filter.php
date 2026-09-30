@@ -29,9 +29,10 @@ defined('MOODLE_INTERNAL') || die();
 require_once($CFG->libdir . '/formslib.php');
 
 /**
- * Date range and category filter.
+ * Date range filter, with a category filter on the list across courses.
  *
- * Custom data: 'categories' (id => name; empty to hide the category filter).
+ * Custom data: 'hidden' (name => PARAM type) and 'categories' (id => name; empty to leave the
+ * category filter out).
  */
 class teacher_filter extends \moodleform {
     /**
@@ -39,16 +40,18 @@ class teacher_filter extends \moodleform {
      */
     protected function definition() {
         $mform = $this->_form;
-        $mform->addElement('hidden', 'mine');
-        $mform->setType('mine', PARAM_BOOL);
+        foreach ($this->_customdata['hidden'] ?? [] as $name => $type) {
+            $mform->addElement('hidden', $name);
+            $mform->setType($name, $type);
+        }
         $mform->addElement('date_selector', 'from', get_string('filterfrom', 'local_zoomattendance'));
         $mform->addElement('date_selector', 'to', get_string('filterto', 'local_zoomattendance'));
         if (!empty($this->_customdata['categories'])) {
             $mform->addElement(
-                'autocomplete',
+                'select',
                 'category',
                 get_string('category'),
-                [0 => get_string('all')] + $this->_customdata['categories']
+                [0 => get_string('allcategories', 'local_zoomattendance')] + $this->_customdata['categories']
             );
             $mform->setType('category', PARAM_INT);
         }
