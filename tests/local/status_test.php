@@ -42,11 +42,11 @@ final class status_test extends \advanced_testcase {
         return [
             'no result' => [0, null, status::ABSENT],
             'below late' => [29 * 60, 0, status::ABSENT],
-            'exactly late threshold' => [30 * 60, 0, status::LATE],
-            'between thresholds' => [40 * 60, 0, status::LATE],
+            'exactly late threshold' => [30 * 60, 0, status::PARTIAL],
+            'joined on time, left before present threshold' => [40 * 60, 0, status::PARTIAL],
             'exactly present threshold' => [45 * 60, 0, status::PRESENT],
             'present joined at grace' => [50 * 60, 10 * 60, status::PRESENT],
-            'enough time but joined after grace' => [50 * 60, 10 * 60 + 1, status::LATE],
+            'enough time but joined after grace' => [50 * 60, 10 * 60 + 1, status::PARTIAL],
         ];
     }
 

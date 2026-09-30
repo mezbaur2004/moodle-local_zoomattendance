@@ -96,10 +96,10 @@ final class attendance_test extends \advanced_testcase {
         $this->assertSame(attendance::STATE_EVALUATED, $evaluation->state);
         $this->assertEqualsCanonicalizing([$present->id, $late->id, $absent->id], array_keys($evaluation->expected));
         $this->assertSame(status::PRESENT, $evaluation->expected[$present->id]->status);
-        $this->assertSame(status::LATE, $evaluation->expected[$late->id]->status);
+        $this->assertSame(status::PARTIAL, $evaluation->expected[$late->id]->status);
         $this->assertSame(status::ABSENT, $evaluation->expected[$absent->id]->status);
         $this->assertSame(0.0, $evaluation->expected[$absent->id]->percentage);
-        $this->assertSame([status::PRESENT => 1, status::LATE => 1, status::ABSENT => 1], $evaluation->counts);
+        $this->assertSame([status::PRESENT => 1, status::PARTIAL => 1, status::ABSENT => 1], $evaluation->counts);
 
         // Teachers are not tracked by default; outsiders are listed without status.
         $this->assertEqualsCanonicalizing([$teacher->id, $outsider->id], array_keys($evaluation->notexpected));
@@ -118,7 +118,7 @@ final class attendance_test extends \advanced_testcase {
         $this->generator->create_participant($session, $this->mins(0), $this->mins(30), ['userid' => $student->id]);
         sync::sync_all();
 
-        $this->assertSame(status::LATE, $this->evaluate_first($cm)->expected[$student->id]->status);
+        $this->assertSame(status::PARTIAL, $this->evaluate_first($cm)->expected[$student->id]->status);
 
         // Measured against the time the meeting actually ran (30 minutes), 100%.
         $DB->insert_record('local_zoomattendance_setting', (object) ['cmid' => $cm->id, 'denominator' => 'actual',
@@ -137,7 +137,7 @@ final class attendance_test extends \advanced_testcase {
 
         $evaluation = $this->evaluate_first($past);
         $this->assertSame(attendance::STATE_NODATA, $evaluation->state);
-        $this->assertSame([status::PRESENT => 0, status::LATE => 0, status::ABSENT => 0], $evaluation->counts);
+        $this->assertSame([status::PRESENT => 0, status::PARTIAL => 0, status::ABSENT => 0], $evaluation->counts);
         $this->assertNull(reset($evaluation->expected)->status);
         $this->assertSame(attendance::STATE_UPCOMING, $this->evaluate_first($future)->state);
 

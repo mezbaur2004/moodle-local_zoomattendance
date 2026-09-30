@@ -2,7 +2,7 @@
 
 A Moodle local plugin that turns the session and participant data the
 [Zoom activity plugin (mod_zoom)](https://github.com/ncstate-delta/moodle-mod_zoom)
-already stores into per-occurrence attendance (present / late / absent) with reports.
+already stores into per-occurrence attendance (present / partial / absent) with reports.
 
 It adds no Zoom API integration of its own and does not modify mod_zoom. It only reads
 mod_zoom's tables and the calendar events mod_zoom writes.
@@ -25,8 +25,8 @@ Install into `local/zoomattendance` and complete the upgrade from
 |---|---|---|
 | Track attendance by default | off | If off, teachers turn attendance on per activity |
 | Present threshold | 75% | Minimum attendance for present, when joined within the late period |
-| Late threshold | 50% | Minimum attendance for late; below it is absent |
-| Late after | 10 min | Joining later than this after the start makes a participant late |
+| Partial threshold | 50% | Minimum attendance for partial; below it is absent |
+| Late after | 10 min | Joining later than this after the start makes a participant partial, not present |
 | Measure attendance against | Scheduled length | Or the time the meeting actually ran inside the schedule |
 | Early / late margin | 30 / 30 min | How far outside a scheduled window a Zoom session may start or end and still match it |
 | Session gap for unscheduled meetings | 30 min | Sessions this close together form one occurrence when there is no fixed schedule |
@@ -50,9 +50,12 @@ separately and do not count in the totals.
 The course summary has one column per occurrence with session data, showing that
 occurrence's status and percentage, and a *Course overall* column. Course overall is
 total attended time over the total time of the occurrences the participant was expected
-at, so longer occurrences weigh more. Its status uses the site default thresholds, and
-counts as late when the participant joined late in more than half of those occurrences.
-The per-user page shows the same course overall at the top.
+at, so longer occurrences weigh more. It is a percentage only, with no status. The
+per-user page shows the same course overall at the top.
+
+A participant is *partial* when they joined but are not present: they stayed below the
+present threshold (for example joined on time and left early) or joined after the late
+period.
 
 The hourly task `\local_zoomattendance\task\sync` snapshots occurrences (mod_zoom may
 later delete past calendar events) and recomputes only occurrences whose source data

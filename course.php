@@ -69,7 +69,7 @@ if ($download !== '' && $summary && $summary->activities) {
                 $record['o' . $occurrenceid] = $row ? renderer::status_text($row->status, $row->percentage) : '';
             }
         }
-        $record['overall'] = renderer::summary_text($summary->overall[$userid] ?? null, $summary->settings);
+        $record['overall'] = renderer::overall($summary->overall[$userid] ?? null);
         $rows[] = $record;
     }
     \core\dataformat::download_data(clean_filename($course->shortname . '-zoomattendance'), $download, $columns, $rows);

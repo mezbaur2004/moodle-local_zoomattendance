@@ -81,17 +81,14 @@ final class course_summary_test extends \advanced_testcase {
         $this->assertSame(status::ABSENT, $summary->cells[$bob->id][$week1]->status);
         $this->assertSame(status::ABSENT, $summary->cells[$bob->id][$week2]->status);
         $this->assertEqualsWithDelta(100.0 / 3, $summary->cells[$bob->id][$week1]->percentage, 0.01);
+        // Alice joined the workshop on time but left at half time.
+        $workshopcolumn = array_key_first($summary->activities[$workshop->id]->columns);
+        $this->assertSame(status::PARTIAL, $summary->cells[$alice->id][$workshopcolumn]->status);
 
         // Alice: 60 + 60 + 60 of 60 + 60 + 120 minutes. Bob: 20 + 0 + 120 of the same.
-        $settings = settings::site_defaults();
         $this->assertEqualsWithDelta(75.0, $summary->overall[$alice->id]->percentage(), 0.01);
-        $this->assertSame(status::PRESENT, $summary->overall[$alice->id]->status($settings));
         $this->assertEqualsWithDelta(140 / 2.4, $summary->overall[$bob->id]->percentage(), 0.01);
-        $this->assertSame(status::LATE, $summary->overall[$bob->id]->status($settings));
-        $this->assertSame(
-            [status::PRESENT => 1, status::LATE => 0, status::ABSENT => 2],
-            $summary->overall[$bob->id]->counts
-        );
+        $this->assertSame(3, $summary->overall[$bob->id]->count);
 
         // The user page builds the same overall for one user.
         $single = course_summary::build($course, 0, $bob->id);
@@ -101,29 +98,5 @@ final class course_summary_test extends \advanced_testcase {
             $single->overall[$bob->id]->percentage(),
             0.001
         );
-    }
-
-    public function test_overall_uses_site_default_thresholds(): void {
-        global $DB;
-        $this->resetAfterTest();
-        set_config('defaultenabled', 1, 'local_zoomattendance');
-        $this->setAdminUser();
-        $dg = $this->getDataGenerator();
-        $generator = $dg->get_plugin_generator('local_zoomattendance');
-        $course = $dg->create_course();
-        $user = $dg->create_and_enrol($course, 'student');
-        $start = time() - DAYSECS;
-        $cm = $generator->create_zoom(['course' => $course->id, 'start_time' => $start, 'duration' => HOURSECS]);
-        $session = $generator->create_session($cm, $start, $start + HOURSECS);
-        $generator->create_participant($session, $start, $start + 36 * MINSECS, ['userid' => $user->id]);
-        // The activity counts 60% as present; the site default (75%) does not.
-        $DB->insert_record('local_zoomattendance_setting', (object) ['cmid' => $cm->id, 'enabled' => 1,
-            'presentpct' => 60, 'timemodified' => time()]);
-        sync::sync_all();
-
-        $summary = course_summary::build($course);
-        $occurrenceid = array_key_first($summary->activities[$cm->id]->columns);
-        $this->assertSame(status::PRESENT, $summary->cells[$user->id][$occurrenceid]->status);
-        $this->assertSame(status::LATE, $summary->overall[$user->id]->status($summary->settings));
     }
 }

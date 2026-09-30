@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Course attendance: one column per evaluated occurrence and a course overall.
+ * Course attendance: one column per evaluated occurrence and a course overall percentage.
  *
  * @package    local_zoomattendance
  * @copyright  2026 Mezbaur Are Rafi
@@ -36,8 +36,6 @@ class course_summary {
     public $cells = [];
     /** @var summary[] userid => overall attendance over every column. */
     public $overall = [];
-    /** @var settings Thresholds for the overall status: the site defaults. */
-    public $settings;
 
     /**
      * Build the summary.
@@ -59,7 +57,6 @@ class course_summary {
         string $capability = 'local/zoomattendance:viewreports'
     ): self {
         $summary = new self();
-        $summary->settings = settings::site_defaults();
         foreach (get_fast_modinfo($course)->get_instances_of('zoom') as $cm) {
             if (!$cm->uservisible || !has_capability($capability, \context_module::instance($cm->id))) {
                 continue;
@@ -82,7 +79,7 @@ class course_summary {
                     $summary->users[$id] = $row->user;
                     $summary->cells[$id][$occurrence->id] = $row;
                     $summary->overall[$id] = $summary->overall[$id] ?? new summary();
-                    $summary->overall[$id]->add($row, $evaluation, $attendance->settings);
+                    $summary->overall[$id]->add($row, $evaluation);
                 }
             }
             if ($columns) {
