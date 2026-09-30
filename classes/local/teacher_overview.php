@@ -32,11 +32,11 @@ class teacher_overview {
      * Courses with a Zoom activity where the user holds a capability.
      *
      * @param int $userid
-     * @param string $capability
+     * @param string|string[] $capability One capability, or several (any of them).
      * @param int $categoryid Limit to this category and its subcategories (0 for all).
      * @return \stdClass[] Course records keyed by id.
      */
-    public static function courses(int $userid, string $capability, int $categoryid = 0): array {
+    public static function courses(int $userid, $capability, int $categoryid = 0): array {
         $categoryids = null;
         if ($categoryid && ($category = \core_course_category::get($categoryid, IGNORE_MISSING, true))) {
             $categoryids = array_flip(array_merge([$categoryid], $category->get_all_children_ids()));
@@ -55,10 +55,10 @@ class teacher_overview {
      * Whether the user holds a capability in at least one course with a Zoom activity.
      *
      * @param int $userid
-     * @param string $capability
+     * @param string|string[] $capability One capability, or several (any of them).
      * @return bool
      */
-    public static function has_courses(int $userid, string $capability): bool {
+    public static function has_courses(int $userid, $capability): bool {
         return (bool) self::course_records($userid, $capability);
     }
 
@@ -115,39 +115,49 @@ class teacher_overview {
      * Course records (id, category) with a Zoom activity where the user holds a capability.
      *
      * @param int $userid
-     * @param string $capability
+     * @param string|string[] $capability One capability, or several (any of them).
      * @return \stdClass[] Keyed by course id.
      */
-    protected static function course_records(int $userid, string $capability): array {
+    protected static function course_records(int $userid, $capability): array {
         global $DB;
         $withzoom = array_flip($DB->get_fieldset_sql('SELECT DISTINCT course FROM {zoom}'));
         $records = [];
-        // The capability course list is a plain list, not keyed by course id.
-        foreach (get_user_capability_course($capability, $userid, true, 'category', 'fullname') ?: [] as $record) {
-            $courseid = (int) $record->id;
-            if ($courseid != SITEID && isset($withzoom[$courseid])) {
-                $records[$courseid] = $record;
+        foreach ((array) $capability as $cap) {
+            // The capability course list is a plain list, not keyed by course id.
+            foreach (get_user_capability_course($cap, $userid, true, 'category', 'fullname') ?: [] as $record) {
+                $courseid = (int) $record->id;
+                if ($courseid != SITEID && isset($withzoom[$courseid])) {
+                    $records[$courseid] = $record;
+                }
             }
         }
         return $records;
     }
 
+    /** @var string[] Capabilities that give the viewer's own view: themself, and the non-editing teachers. */
+    public const MINE_CAPABILITIES = [
+        'local/zoomattendance:viewownteacher',
+        'local/zoomattendance:viewnoneditingteachers',
+    ];
+
     /**
-     * Rows for a viewer: every teacher in the courses where they hold viewteacherreports, or
-     * only themself in the courses where they hold viewownteacher.
+     * Rows for a viewer: every teacher in the courses where they hold viewteacherreports, or, in
+     * their own view, themself where they hold viewownteacher and the non-editing teachers where
+     * they hold viewnoneditingteachers.
      *
      * @param int $viewerid
-     * @param bool $mine Only the viewer's own figures.
+     * @param bool $mine The viewer's own view.
      * @param int $from Occurrences starting at or after this time.
      * @param int $to Occurrences starting before this time.
      * @param int $categoryid Limit to a category (0 for all).
      * @return \stdClass[] Each with user, course, stats and overall; sorted by teacher then course.
      */
     public static function rows(int $viewerid, bool $mine, int $from, int $to, int $categoryid = 0): array {
-        $capability = $mine ? 'local/zoomattendance:viewownteacher' : 'local/zoomattendance:viewteacherreports';
+        $capability = $mine ? self::MINE_CAPABILITIES : 'local/zoomattendance:viewteacherreports';
         $rows = [];
         foreach (self::courses($viewerid, $capability, $mine ? 0 : $categoryid) as $course) {
-            $summary = teacher_summary::build($course, $mine ? $viewerid : null, $from, $to);
+            $userids = $mine ? teacher_access::visible_teachers(\context_course::instance($course->id), $viewerid, false) : null;
+            $summary = teacher_summary::build($course, $userids, $from, $to);
             foreach ($summary->users as $userid => $user) {
                 // Leave out teachers whose classes in range are all awaiting or reset: nothing to show.
                 $stats = $summary->stats[$userid] ?? null;

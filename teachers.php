@@ -27,6 +27,7 @@ require(__DIR__ . '/../../config.php');
 use local_zoomattendance\form\teacher_filter;
 use local_zoomattendance\local\attendance;
 use local_zoomattendance\local\settings;
+use local_zoomattendance\local\teacher_access;
 use local_zoomattendance\local\teacher_overview;
 use local_zoomattendance\local\teacher_summary;
 use local_zoomattendance\output\renderer;
@@ -37,18 +38,20 @@ $download = optional_param('download', '', PARAM_ALPHA);
 $course = get_course($id);
 require_login($course);
 $context = context_course::instance($course->id);
-// Managers see every teacher; a teacher sees only themself.
-$canviewall = has_capability('local/zoomattendance:viewteacherreports', $context);
-if (!$canviewall) {
+// Managers see every teacher, editing teachers also the non-editing teachers, and a teacher themself.
+if (!teacher_access::can_view_any($context)) {
     require_capability('local/zoomattendance:viewownteacher', $context);
 }
+$visible = teacher_access::visible_teachers($context);
+$canviewall = $visible === null;
+$onlyown = !$canviewall && !has_capability('local/zoomattendance:viewnoneditingteachers', $context);
 // Default range: from the course's first class (the course start date is often later or unset).
 $from = optional_param('fromts', usergetmidnight(teacher_overview::first_class($course->id) ?: time() - 30 * DAYSECS), PARAM_INT);
 $to = optional_param('tots', usergetmidnight(time()), PARAM_INT);
 
 $url = new moodle_url('/local/zoomattendance/teachers.php', ['id' => $course->id, 'fromts' => $from, 'tots' => $to]);
 $PAGE->set_url($url);
-$title = get_string($canviewall ? 'teacherattendance' : 'myteaching', 'local_zoomattendance');
+$title = get_string($onlyown ? 'myteaching' : 'teacherattendance', 'local_zoomattendance');
 $PAGE->set_title($title . ': ' . format_string($course->shortname, true, ['context' => $context]));
 $PAGE->set_heading(format_string($course->fullname));
 $PAGE->set_pagelayout('incourse');
@@ -62,7 +65,7 @@ if ($data = $form->get_data()) {
 
 $tracking = settings::teacher_tracking();
 $summary = $tracking
-    ? teacher_summary::build($course, $canviewall ? null : (int) $USER->id, $from, teacher_overview::day_end($to))
+    ? teacher_summary::build($course, $visible, $from, teacher_overview::day_end($to))
     : null;
 
 if ($download !== '' && $summary && $summary->classes) {
@@ -129,7 +132,7 @@ if (!$tracking) {
     ]), ['class' => 'text-muted']);
     echo $output->teacher_legend(settings::teacher());
     if (!$summary->classes) {
-        echo $output->notification(get_string($canviewall ? 'noteacherclasses' : 'nomyclasses', 'local_zoomattendance'), 'info');
+        echo $output->notification(get_string($onlyown ? 'nomyclasses' : 'noteacherclasses', 'local_zoomattendance'), 'info');
     } else {
         echo html_writer::tag('p', get_string('teachersummary_help', 'local_zoomattendance'), ['class' => 'text-muted']);
         echo $output->teacher_table($summary);
@@ -147,7 +150,7 @@ $links = [html_writer::link(
 )];
 $links[] = html_writer::link(
     new moodle_url('/local/zoomattendance/teachersoverview.php', $canviewall ? [] : ['mine' => 1]),
-    get_string($canviewall ? 'teachersoverview' : 'myteachingall', 'local_zoomattendance')
+    get_string($canviewall ? 'teachersoverview' : ($onlyown ? 'myteachingall' : 'teachersmine'), 'local_zoomattendance')
 );
 echo html_writer::tag('p', implode(' · ', $links));
 echo $output->footer();

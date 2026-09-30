@@ -76,12 +76,12 @@ class teacher_summary {
      * Build the summary.
      *
      * @param \stdClass $course
-     * @param int|null $userid Only this teacher.
+     * @param int[]|null $userids Only these teachers (null for every teacher).
      * @param int $from Only occurrences starting at or after this time.
      * @param int|null $to Only occurrences starting before this time.
      * @return self
      */
-    public static function build(\stdClass $course, ?int $userid = null, int $from = 0, ?int $to = null): self {
+    public static function build(\stdClass $course, ?array $userids = null, int $from = 0, ?int $to = null): self {
         global $DB;
         $summary = new self();
         // Identity keys each teacher linked to themself.
@@ -110,11 +110,12 @@ class teacher_summary {
             if (!$occurrences) {
                 continue;
             }
-            $candidates = $teachers->get_candidates($userid === null ? null : [$userid]);
+            $candidates = $userids === [] ? [] : $teachers->get_candidates($userids);
             if (!$candidates) {
                 continue;
             }
-            $results = $attendance->get_results(array_keys($occurrences), $userid);
+            $onlyuser = $userids !== null && count($userids) === 1 ? (int) reset($userids) : null;
+            $results = $attendance->get_results(array_keys($occurrences), $onlyuser);
             $activity = (object) ['cm' => $cm, 'columns' => [], 'states' => []];
             foreach ($occurrences as $occurrence) {
                 $state = $teachers->state($occurrence);

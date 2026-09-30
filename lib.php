@@ -111,7 +111,10 @@ function local_zoomattendance_myprofile_navigation(core_user\output\myprofile\tr
     $added = false;
     if (
         $iscurrentuser && \local_zoomattendance\local\settings::teacher_tracking()
-            && \local_zoomattendance\local\teacher_overview::has_courses((int) $user->id, 'local/zoomattendance:viewownteacher')
+            && \local_zoomattendance\local\teacher_overview::has_courses(
+                (int) $user->id,
+                \local_zoomattendance\local\teacher_overview::MINE_CAPABILITIES
+            )
     ) {
         $tree->add_node(new core_user\output\myprofile\node(
             'reports',
@@ -132,11 +135,9 @@ function local_zoomattendance_myprofile_navigation(core_user\output\myprofile\tr
     ) {
         return $added;
     }
-    // Teachers must not see other teachers' Zoom times (user.php refuses them too).
-    if (
-        !$iscurrentuser && has_capability('local/zoomattendance:betrackedteacher', $context, $user->id)
-            && !has_capability('local/zoomattendance:viewteacherreports', $context)
-    ) {
+    // Teachers must not see other teachers' Zoom times, apart from editing teachers seeing non-editing
+    // ones (user.php refuses them too).
+    if (!$iscurrentuser && !\local_zoomattendance\local\teacher_access::can_view($context, (int) $user->id)) {
         return $added;
     }
     $url = new moodle_url('/local/zoomattendance/user.php', ['course' => $course->id, 'user' => $user->id]);

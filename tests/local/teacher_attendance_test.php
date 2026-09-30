@@ -245,7 +245,7 @@ final class teacher_attendance_test extends \advanced_testcase {
         $this->assertSame((int) $teacher->id, (int) $summary->excludedby[$occurrence->id]->id);
 
         // A teacher's own view holds only their row; the date range limits the columns.
-        $mine = teacher_summary::build($this->course, (int) $teacher->id);
+        $mine = teacher_summary::build($this->course, [(int) $teacher->id]);
         $this->assertEquals([$teacher->id], array_keys($mine->users));
         $range = teacher_summary::build($this->course, null, $this->mins(12 * 60), $this->mins(36 * 60));
         $this->assertCount(1, $range->activities);

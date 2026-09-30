@@ -38,13 +38,13 @@ $categoryid = optional_param('category', 0, PARAM_INT);
 
 require_login();
 $systemcontext = context_system::instance();
-$capability = $mine ? 'local/zoomattendance:viewownteacher' : 'local/zoomattendance:viewteacherreports';
+$capability = $mine ? teacher_overview::MINE_CAPABILITIES : 'local/zoomattendance:viewteacherreports';
 $hascourses = teacher_overview::has_courses((int) $USER->id, $capability);
 if (!$mine && !$hascourses) {
-    if (teacher_overview::has_courses((int) $USER->id, 'local/zoomattendance:viewownteacher')) {
-        redirect(new moodle_url('/local/zoomattendance/teachersoverview.php', ['mine' => 1]));
+    if (teacher_overview::has_courses((int) $USER->id, teacher_overview::MINE_CAPABILITIES)) {
+        redirect(new moodle_url('/local/zoomattendance/teachersoverview.php', ['mine' => 1, 'fromts' => $from, 'tots' => $to]));
     }
-    throw new required_capability_exception($systemcontext, $capability, 'nopermissions', '');
+    throw new required_capability_exception($systemcontext, 'local/zoomattendance:viewteacherreports', 'nopermissions', '');
 }
 
 $params = ['fromts' => $from, 'tots' => $to] + ($mine ? ['mine' => 1] : ['category' => $categoryid]);
@@ -52,7 +52,9 @@ $url = new moodle_url('/local/zoomattendance/teachersoverview.php', $params);
 $PAGE->set_context($systemcontext);
 $PAGE->set_url($url);
 $PAGE->set_pagelayout('report');
-$title = get_string($mine ? 'myteachingall' : 'teachersoverview', 'local_zoomattendance');
+// Editing teachers' own view also lists their non-editing teachers.
+$withteacher = !$mine || teacher_overview::has_courses((int) $USER->id, 'local/zoomattendance:viewnoneditingteachers');
+$title = get_string($mine ? ($withteacher ? 'teachersmine' : 'myteachingall') : 'teachersoverview', 'local_zoomattendance');
 $PAGE->set_title($title);
 $PAGE->set_heading($title);
 
@@ -74,7 +76,7 @@ $rows = settings::teacher_tracking() && $hascourses
     : [];
 
 $columns = [];
-if (!$mine) {
+if ($withteacher) {
     $columns['teacher'] = get_string('teacher', 'local_zoomattendance');
 }
 $columns += [
@@ -93,12 +95,12 @@ $columns += [
 ];
 
 if ($download !== '') {
-    $filecolumns = array_slice($columns, 0, $mine ? 1 : 2, true) + ['category' => get_string('category')]
-        + array_slice($columns, $mine ? 1 : 2, null, true);
+    $filecolumns = array_slice($columns, 0, $withteacher ? 2 : 1, true) + ['category' => get_string('category')]
+        + array_slice($columns, $withteacher ? 2 : 1, null, true);
     $categorynames = core_course_category::make_categories_list();
     $records = [];
     foreach ($rows as $row) {
-        $record = $mine ? [] : ['teacher' => fullname($row->user)];
+        $record = $withteacher ? ['teacher' => fullname($row->user)] : [];
         $record['course'] = format_string($row->course->fullname, true, ['escape' => false]);
         $record['category'] = $categorynames[$row->course->category] ?? '';
         foreach (array_keys(\local_zoomattendance\local\teacher_summary::empty_stats()) as $key) {
@@ -146,7 +148,7 @@ if (!$rows) {
     $table->head = array_values($columns);
     foreach ($rows as $row) {
         $cells = [];
-        if (!$mine) {
+        if ($withteacher) {
             $cells[] = fullname($row->user);
         }
         // The course page opens on the same date range.

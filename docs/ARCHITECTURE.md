@@ -913,14 +913,21 @@ phase 3 adds the following:
 | `local/zoomattendance:betrackedteacher` | module | editingteacher, teacher | Being an expected teacher (C2) |
 | `local/zoomattendance:viewteacherreports` | course | manager | Every teacher's figures: per-course teacher page and central list. `RISK_PERSONAL` |
 | `local/zoomattendance:viewownteacher` | course | editingteacher, teacher | One's own teacher figures only |
+| `local/zoomattendance:viewnoneditingteachers` | course | editingteacher | The non-editing teachers' figures (since 0.3.1). `RISK_PERSONAL` |
 
-**Teachers never see other teachers' figures.** Today they can, and phase 3 closes that:
+**Teachers see no other teacher's figures, except that editing teachers see non-editing
+teachers.** A teacher is *editing* when they hold `moodle/course:manageactivities` in the course;
+the rule is a plain one, not Moodle's role-assignment hierarchy. Nobody without
+`viewteacherreports` sees another editing teacher. `local\teacher_access` holds the rule
+(`visible_teachers()`, `can_view()`), and every page below uses it:
 
 * **Occurrence detail and its download (B4.9):** users with `betrackedteacher` in the module
-  are left out of "Matched but not expected" for viewers without `viewteacherreports`.
-* **Another user's page (`user.php`):** opening the page of a user who holds `betrackedteacher`
-  in the course is refused unless the viewer has `viewteacherreports`, or is that user.
-* **Per-course teacher page:** a viewer with only `viewownteacher` sees their own row only.
+  are left out of "Matched but not expected" unless the viewer may see them. The viewer's own
+  row stays out too.
+* **Another user's page (`user.php`) and the profile link to it:** refused for a teacher the
+  viewer may not see.
+* **Per-course teacher page:** a viewer without `viewteacherreports` sees their own column
+  (`viewownteacher`) and the non-editing teachers' (`viewnoneditingteachers`).
 
 ## C7. Pages
 
@@ -941,9 +948,10 @@ phase 3 adds the following:
   * Filters: date range (default the last 30 days) and category. It has a download.
   * Linked from *Site administration → Reports* for managers at site level, and from the
     category navigation for managers at category level.
-* **My teaching attendance** — the central list and teacher pages restricted to the viewer.
-  Linked from the user's profile for anyone holding `viewownteacher` in a course with a Zoom
-  activity.
+* **My teaching attendance** — the central list and teacher pages restricted to the viewer, and
+  to the non-editing teachers where the viewer holds `viewnoneditingteachers` (then titled
+  *Teacher attendance: my courses*, with a teacher column). Linked from the user's profile for
+  anyone holding `viewownteacher` or `viewnoneditingteachers` in a course with a Zoom activity.
 
 Evaluation is read-time, as for students. The central list evaluates every course in range,
 so on large sites the date filter bounds the work. Caching is left until it is measured.
@@ -1111,7 +1119,7 @@ All open questions were resolved by adopting the proposed defaults.
 | **D18** | Several teachers | Every expected teacher is expected at every occurrence; no responsible-teacher setting (C2). |
 | **D19** | Teacher status | Site-level thresholds only: Present ≥ 90 %, Partial ≥ 10 % (50 % up to 0.3.0), grace 5 min, all configurable; always against the scheduled window; late-start and early-leave minutes shown (C3). |
 | **D20** | Classes not held | Count as Absent for expected teachers once mod_zoom's report watermark is 24 h (configurable) past the end, and only for scheduled occurrences ending after teacher tracking was switched on. Students unaffected (C4). |
-| **D21** | Visibility | Managers see all teachers (`viewteacherreports`); each teacher sees only their own figures (`viewownteacher`); teachers are hidden from other teachers in existing reports (C6). |
+| **D21** | Visibility | Managers see all teachers (`viewteacherreports`); each teacher sees their own figures (`viewownteacher`); editing teachers also see non-editing teachers (`viewnoneditingteachers`, plain rule); other teachers are hidden in existing reports (C6). |
 | **D22** | Integrity | While teacher tracking is on, every activity is synced; exclusions, windows and identity links record who made them, are logged, and are shown to managers; self-links are flagged (C5). |
 | **D23** | Teacher course overall | Weighted percentage only, no overall status, as for students (C3). |
 | **D24** | Host detection | Deferred until verified against real Zoom data (C10). |

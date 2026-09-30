@@ -223,13 +223,14 @@ class attendance {
      * Leave out users tracked as teachers, for viewers who may not see other teachers' figures.
      *
      * @param \stdClass[] $rows Rows keyed by user id, such as an evaluation's notexpected list.
+     * @param int[] $keep Teachers the viewer may see.
      * @return \stdClass[]
      */
-    public function without_teachers(array $rows): array {
+    public function without_teachers(array $rows, array $keep = []): array {
         if (!$rows) {
             return $rows;
         }
-        return array_diff_key($rows, $this->teacher_ids());
+        return array_diff_key($rows, array_diff_key($this->teacher_ids(), array_flip($keep)));
     }
 
     /**

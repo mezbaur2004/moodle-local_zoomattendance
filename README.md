@@ -80,6 +80,7 @@ verified behaviour of mod_zoom it relies on.
 | `local/zoomattendance:betrackedteacher` | teacher, editing teacher | Being an expected teacher (teacher attendance) |
 | `local/zoomattendance:viewteacherreports` | manager | Every teacher's attendance |
 | `local/zoomattendance:viewownteacher` | teacher, editing teacher | Own teacher attendance |
+| `local/zoomattendance:viewnoneditingteachers` | editing teacher | Non-editing teachers' attendance |
 
 ## Correcting attendance
 
@@ -141,8 +142,9 @@ Each page has a *What the statuses mean* legend. Besides Present, Partial and Ab
 can show *Not held* (counts as absent), *Excluded*, *Awaiting Zoom report* or *Zoom data reset*
 (none of these three counts).
 
-Managers see every teacher. A teacher sees only their own figures, and other teachers are
-hidden from them in the existing reports too.
+Managers see every teacher. Editing teachers see their own figures and the non-editing
+teachers' in their courses, but not other editing teachers. Non-editing teachers see only their
+own figures. Teachers they may not see are hidden from them in the existing reports too.
 
 This is staff monitoring: inform teachers, and check local employment and data-protection
 rules, before using the figures for evaluation.
