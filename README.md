@@ -47,6 +47,11 @@ who hold `local/zoomattendance:betracked` (students by default) and can access t
 activity. Other matched Moodle users and unmatched Zoom participants are listed
 separately and do not count in the totals.
 
+The course summary is linked from the course navigation as *Zoom attendance* (students see
+*My Zoom attendance*), placed right after *Grades*. Moodle shows at most five course
+navigation items, so the item that was fifth moves under *More*. The placement uses a hook
+that exists from Moodle 4.4; on older versions the link stays under *More*.
+
 The course summary has one column per occurrence with session data, showing that
 occurrence's status and percentage, and a *Course overall* column. Course overall is
 total attended time over the total time of the occurrences the participant was expected

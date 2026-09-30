@@ -92,7 +92,7 @@ function local_zoomattendance_extend_navigation_course(navigation_node $navigati
         $url,
         navigation_node::TYPE_SETTING,
         null,
-        'local_zoomattendance',
+        \local_zoomattendance\hook_callbacks::NODE_KEY,
         new pix_icon('i/report', '')
     );
 }

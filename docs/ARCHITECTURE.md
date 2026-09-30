@@ -637,7 +637,10 @@ Sessions page; it links to it.
   and export.
 
 ### Per-course summary (`/local/zoomattendance/course.php?id=<courseid>`)
-Linked via `local_zoomattendance_extend_navigation_course()`. One row per user, one column
+Linked via `local_zoomattendance_extend_navigation_course()`. From Moodle 4.4 the
+`core\hook\navigation\secondary_extend` callback (`classes/hook_callbacks.php`, registered in
+`db/hooks.php`) moves the link to right after *Grades* in the course secondary navigation, so it
+is not pushed under *More* by the five-item limit (`MAX_DISPLAYED_NAV_NODES`). One row per user, one column
 per evaluated occurrence (status and %), grouped under its activity, and a *Course overall*
 column (percentage only). Built by
 `classes/local/course_summary.php`. The per-user page shows the same course overall at the top.
