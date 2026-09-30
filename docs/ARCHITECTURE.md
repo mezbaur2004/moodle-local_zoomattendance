@@ -1,6 +1,7 @@
 # local_zoomattendance — Architecture (design only)
 
-Status: **design accepted, nothing implemented.** Decisions D1–D16 at the end record the adopted choices.
+Status: **phase 1 implemented.** Decisions D1–D16 record the adopted choices; section B13 lists where
+the phase 1 code differs from or refines this design.
 Scope: a Moodle local plugin that turns data `mod_zoom` has already stored
 about sessions and participants into per-occurrence attendance (present / late / absent)
 with reports.
@@ -704,6 +705,41 @@ backup/moodle2/{backup,restore}_local_zoomattendance_plugin.class.php  (settings
 lang/en/local_zoomattendance.php
 tests/*
 ```
+
+## B13. Phase 1 implementation notes
+
+Phase 1 implements B1–B12 with decisions D1–D16, except for the items below.
+
+* **When statuses are assigned.** An occurrence is only evaluated (present / late / absent)
+  once at least one mod_zoom session is mapped to it. Before that it is shown as
+  *Upcoming* (not ended yet) or *No session data* (ended, but mod_zoom has no session:
+  the meeting did not happen or `get_meeting_reports` has not run yet). This stops
+  everyone being marked absent during the up-to-6-hour gap before mod_zoom imports a
+  report. Cancelled and excluded occurrences are shown but never counted.
+* **Deferred to phase 2:** manual matching (`local_zoomatt_idmap`, D6) and manually
+  overriding an inferred window (`source = manual`, second half of D11). Teachers can
+  already exclude and re-include an occurrence.
+* **Capabilities:** `viewemail` and `configure` from B6 were dropped. Unmatched
+  participants' emails are never displayed (only a hashed key is stored), and site
+  defaults use the normal admin settings page.
+* **Less personal data:** `local_zoomatt_settings` does not store `usermodified`, so
+  per-activity settings hold no personal data.
+* **Grouping rule (B4.8 point 3):** access is decided by the activity's visibility and
+  availability conditions (`\core_availability\info_module::filter_user_list()`), which
+  already cover "grouping members only". Group mode alone does not remove anyone from the
+  expected list; the group selector filters the report.
+* **Masked participant data (D10):** when `zoom/maskparticipantdata` is on, the activity
+  report shows only per-occurrence counts, and the occurrence detail, course summary and
+  other users' pages are refused. A user can still see their own attendance.
+* **Actual-time denominator:** stored per occurrence as `actualsecs` during recompute, so
+  switching the denominator is a read-time change like the thresholds.
+* **File layout:** the expected-user and evaluation logic is one read-side class
+  (`classes/local/attendance.php`); effective settings are in `classes/local/settings.php`;
+  the per-activity form is `classes/form/activitysettings.php`. The other files follow B12.
+* **Testing:** 49 PHPUnit tests. Locally they ran on Moodle 5.0.10+, PHP 8.4, PostgreSQL 16
+  with mod_zoom v5.5.1, together with Moodle's own privacy compliance tests.
+  `.github/workflows/ci.yml` runs `moodle-plugin-ci` on Moodle 4.1 (PHP 8.0), 4.5
+  (MariaDB) and 5.0.
 
 ---
 
