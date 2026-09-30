@@ -828,7 +828,7 @@ change per-activity settings and must not be able to change their own bar.
 | Setting | Default | Meaning |
 |---|---|---|
 | `teacherpresentpct` | 90 | Minimum % of the scheduled window for Present |
-| `teacherpartialpct` | 50 | Minimum % for Partial; below it is Absent. Must be ≤ `teacherpresentpct` |
+| `teacherpartialpct` | 10 (50 up to 0.3.0) | Minimum % for Partial; below it is Absent. Must be ≤ `teacherpresentpct` |
 | `teachergracemins` | 5 | A first join later than this after the start is Partial, not Present |
 | `teachernotheldhours` | 24 | Delay before a class with no Zoom session counts as Not held (C4) |
 
@@ -1068,6 +1068,10 @@ without Zoom courses.
   as numbers. The list CSV adds the category. File names carry the date range.
 * **Empty states** say what to change (a wider range, another category). A teacher without Zoom
   courses gets a message instead of a permission error.
+* **Teacher Absent threshold.** Absent now means the teacher did not join or attended under
+  10 %. `teacherpartialpct` defaults to 10 (was 50). The upgrade moves a site still on 50 and
+  keeps any other value. A teacher who joined 20 minutes late and stayed 25 minutes (42 %) had
+  read as "Absent", which managers take to mean "never showed up".
 * **Bugs fixed.**
   * The *Self-linked* flag was set whenever the teacher had ever self-linked and had any
     manually linked time in the class, even time linked by someone else. It now checks that
@@ -1105,7 +1109,7 @@ All open questions were resolved by adopting the proposed defaults.
 | **D16** | Retention | Results always mirror the mod_zoom source; they are removed when the source rows go. |
 | **D17** | Teacher tracking | Capability `betrackedteacher` for editingteacher and teacher; enrolled teachers only; site switch `teachertracking`, default off (C2). |
 | **D18** | Several teachers | Every expected teacher is expected at every occurrence; no responsible-teacher setting (C2). |
-| **D19** | Teacher status | Site-level thresholds only: Present ≥ 90 %, Partial ≥ 50 %, grace 5 min, all configurable; always against the scheduled window; late-start and early-leave minutes shown (C3). |
+| **D19** | Teacher status | Site-level thresholds only: Present ≥ 90 %, Partial ≥ 10 % (50 % up to 0.3.0), grace 5 min, all configurable; always against the scheduled window; late-start and early-leave minutes shown (C3). |
 | **D20** | Classes not held | Count as Absent for expected teachers once mod_zoom's report watermark is 24 h (configurable) past the end, and only for scheduled occurrences ending after teacher tracking was switched on. Students unaffected (C4). |
 | **D21** | Visibility | Managers see all teachers (`viewteacherreports`); each teacher sees only their own figures (`viewownteacher`); teachers are hidden from other teachers in existing reports (C6). |
 | **D22** | Integrity | While teacher tracking is on, every activity is synced; exclusions, windows and identity links record who made them, are logged, and are shown to managers; self-links are flagged (C5). |

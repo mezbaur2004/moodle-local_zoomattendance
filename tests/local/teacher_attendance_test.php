@@ -92,7 +92,7 @@ final class teacher_attendance_test extends \advanced_testcase {
         $settings = settings::teacher();
         $this->assertTrue($settings->enabled);
         $this->assertSame(90, $settings->presentpct);
-        $this->assertSame(50, $settings->latepct);
+        $this->assertSame(10, $settings->latepct);
         $this->assertSame(5, $settings->lategracemins);
         $this->assertSame(settings::DENOMINATOR_SCHEDULED, $settings->denominator);
         $this->assertSame(DAYSECS, settings::teacher_notheld_delay());
@@ -350,5 +350,26 @@ final class teacher_attendance_test extends \advanced_testcase {
         $this->assertSame(1, $summary->stats[$teacher->id]['expected']);
         $this->assertSame(1, $summary->stats[$teacher->id][status::PRESENT]);
         $this->assertEqualsWithDelta(100.0, $summary->overall[$teacher->id]->percentage(), 0.01);
+    }
+
+    public function test_absent_means_did_not_join_or_under_ten_percent(): void {
+        $dg = $this->getDataGenerator();
+        $under = $dg->create_and_enrol($this->course, 'editingteacher');
+        $atten = $dg->create_and_enrol($this->course, 'editingteacher');
+        $latelow = $dg->create_and_enrol($this->course, 'editingteacher');
+        $never = $dg->create_and_enrol($this->course, 'editingteacher');
+        $cm = $this->create_class();
+        $session = $this->generator->create_session($cm, $this->mins(0), $this->mins(60));
+        $this->generator->create_participant($session, $this->mins(0), $this->mins(5), ['userid' => $under->id]);
+        $this->generator->create_participant($session, $this->mins(0), $this->mins(6), ['userid' => $atten->id]);
+        $this->generator->create_participant($session, $this->mins(20), $this->mins(45), ['userid' => $latelow->id]);
+        sync::sync_all();
+
+        $rows = $this->evaluate_first($cm)->rows;
+        $this->assertSame(status::ABSENT, $rows[$under->id]->status);
+        $this->assertSame(status::PARTIAL, $rows[$atten->id]->status);
+        // Joined 20 minutes late and stayed 25 minutes: joined, so Partial rather than Absent.
+        $this->assertSame(status::PARTIAL, $rows[$latelow->id]->status);
+        $this->assertSame(status::ABSENT, $rows[$never->id]->status);
     }
 }

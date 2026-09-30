@@ -125,7 +125,7 @@ if ($hassiteconfig) {
             'local_zoomattendance/teacherpartialpct',
             new lang_string('teacherpartialpct', 'local_zoomattendance'),
             new lang_string('teacherpartialpct_desc', 'local_zoomattendance'),
-            50,
+            10,
             $percentages
         ));
         $settings->add(new admin_setting_configtext(

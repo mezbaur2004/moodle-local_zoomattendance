@@ -113,7 +113,7 @@ Zoom classes.
   non-editing teachers by default). Every teacher is expected at every class of every Zoom
   activity in their course.
 - **Thresholds:** site-level only, so teachers cannot change their own bar. Present from 90 %
-  of the scheduled time when joined within 5 minutes, partial from 50 %, otherwise absent. All
+  of the scheduled time when joined within 5 minutes, partial from 10 %, otherwise absent (did not join, or under 10 %). All
   three are configurable. Teachers are always measured against the scheduled time.
 - **Late starts and early leaves:** each cell shows how many minutes late the teacher joined
   and how many minutes early they left.
