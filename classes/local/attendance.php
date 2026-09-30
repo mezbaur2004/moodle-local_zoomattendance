@@ -313,7 +313,8 @@ class attendance {
             'lastleave' => ($result && $result->lastleave !== null) ? (int) $result->lastleave : null,
             'percentage' => $result ? calculator::percentage($attended, $denominator) : ($status ? 0.0 : null),
             'status' => $status,
-            'weakmatch' => $result && (int) $result->matchstrength === 1,
+            'weakmatch' => $result && (int) $result->matchstrength === sync::MATCH_WEAK,
+            'manualmatch' => $result && (int) $result->matchstrength === sync::MATCH_MANUAL,
             'displayname' => $result ? $result->displayname : null,
         ];
     }

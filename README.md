@@ -63,10 +63,24 @@ verified behaviour of mod_zoom it relies on.
 | `local/zoomattendance:betracked` | student | Being an expected participant |
 | `local/zoomattendance:manage` | editing teacher, manager | Per-activity settings, exclude occurrences, recompute |
 
-## Not yet included (phase 2)
+## Correcting attendance
 
-- Manually mapping unmatched Zoom participants to Moodle users
-- Manually overriding an inferred occurrence window
+Teachers with *Manage Zoom attendance settings* at course level can fix the two cases the
+automatic matching cannot:
+
+- **Unmatched participants.** In an occurrence's detail, *Link to user* next to an unmatched
+  Zoom participant (for example "iPhone" or a personal email) links that Zoom identity to an
+  enrolled user. The link applies to every Zoom activity in the course, past and future. The
+  participant's time merges with the user's own, and the user is marked *Linked by teacher*.
+  *Zoom identity links*, at the bottom of the activity report, lists the course's links and
+  can remove them.
+- **Inferred windows.** For occurrences inferred from sessions (meetings without a fixed time),
+  *Set window* in the occurrence list sets the real class time. Time is clipped to it and
+  percentages are measured against it. *Revert* returns to the inferred window. Scheduled
+  windows come from the Zoom activity and cannot be edited here.
+
+Both changes recompute attendance immediately. If a sync is running at that moment, they
+apply on the next hourly sync.
 
 ## Development
 

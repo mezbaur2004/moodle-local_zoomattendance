@@ -25,7 +25,6 @@
 namespace local_zoomattendance;
 
 use local_zoomattendance\local\sync;
-use local_zoomattendance\local\source\zoom_source;
 
 /**
  * Keeps attendance data in step with deletions and course resets.
@@ -61,28 +60,25 @@ class observer {
     public static function user_deleted(\core\event\user_deleted $event): void {
         global $DB;
         $DB->delete_records('local_zoomattendance_result', ['userid' => $event->objectid]);
+        $DB->delete_records('local_zoomattendance_idmap', ['userid' => $event->objectid]);
     }
 
     /**
      * A course was reset. mod_zoom's reset may have deleted participant rows, so re-sync the
-     * course's activities; results always mirror the mod_zoom data.
+     * course's activities; results always mirror the mod_zoom data. When the Zoom data was
+     * reset, the teacher's identity links go too: they are user data tied to that data.
      *
      * @param \core\event\course_reset_ended $event
      */
     public static function course_reset_ended(\core\event\course_reset_ended $event): void {
         global $DB;
-        foreach (zoom_source::get_instances((int) $event->courseid) as $instance) {
-            $enabled = \local_zoomattendance\local\settings::from_override(
-                zoom_source::override_from_instance($instance)
-            )->enabled;
-            if (!$enabled && !$DB->record_exists('local_zoomattendance_occ', ['zoomid' => $instance->id])) {
-                continue;
-            }
-            try {
-                sync::sync_instance($instance, true);
-            } catch (\Throwable $e) {
-                debugging('local_zoomattendance: reset sync failed: ' . $e->getMessage(), DEBUG_DEVELOPER);
-            }
+        if (!empty($event->other['reset_options']['reset_zoom_all'])) {
+            $DB->delete_records('local_zoomattendance_idmap', ['courseid' => $event->courseid]);
+        }
+        try {
+            sync::resync_course((int) $event->courseid);
+        } catch (\Throwable $e) {
+            debugging('local_zoomattendance: reset sync failed: ' . $e->getMessage(), DEBUG_DEVELOPER);
         }
     }
 }
