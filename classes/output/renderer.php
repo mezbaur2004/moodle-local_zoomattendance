@@ -27,7 +27,10 @@ namespace local_zoomattendance\output;
 use html_table;
 use html_writer;
 use local_zoomattendance\local\attendance;
+use local_zoomattendance\local\course_summary;
+use local_zoomattendance\local\settings;
 use local_zoomattendance\local\status;
+use local_zoomattendance\local\summary;
 use moodle_url;
 
 /**
@@ -59,21 +62,121 @@ class renderer extends \plugin_renderer_base {
     }
 
     /**
-     * Course summary cell: present / late / absent counts and mean percentage.
+     * Status and percentage as plain text, for downloads.
      *
-     * @param array|null $stat Counts keyed by status plus 'pct' (sum) and 'n' (evaluated occurrences).
+     * @param string|null $status A status constant.
+     * @param float|null $pct
      * @return string
      */
-    public static function summary_cell(?array $stat): string {
-        if (!$stat || !$stat['n']) {
+    public static function status_text(?string $status, ?float $pct): string {
+        if ($status === null) {
             return '';
         }
+        $label = get_string('status_' . $status, 'local_zoomattendance');
+        if ($pct === null) {
+            return $label;
+        }
         return get_string('summarycell', 'local_zoomattendance', (object) [
-            'present' => $stat[status::PRESENT],
-            'late' => $stat[status::LATE],
-            'absent' => $stat[status::ABSENT],
-            'pct' => self::percentage($stat['pct'] / $stat['n']),
+            'status' => $label,
+            'pct' => self::percentage($pct),
         ]);
+    }
+
+    /**
+     * Status badge followed by the percentage.
+     *
+     * @param string|null $status A status constant.
+     * @param float|null $pct
+     * @param string|null $title Tooltip.
+     * @return string
+     */
+    public function status_cell(?string $status, ?float $pct, ?string $title = null): string {
+        if ($status === null) {
+            return '';
+        }
+        return html_writer::span(
+            trim($this->badge($status) . ' ' . self::percentage($pct)),
+            'local-zoomattendance-status text-nowrap',
+            $title === null ? [] : ['title' => $title]
+        );
+    }
+
+    /**
+     * Overall status as plain text, for downloads.
+     *
+     * @param summary|null $summary
+     * @param settings $settings Thresholds for the overall status.
+     * @return string
+     */
+    public static function summary_text(?summary $summary, settings $settings): string {
+        return $summary ? self::status_text($summary->status($settings), $summary->percentage()) : '';
+    }
+
+    /**
+     * Overall status badge and percentage; the per-status counts are in the tooltip.
+     *
+     * @param summary|null $summary
+     * @param settings $settings Thresholds for the overall status.
+     * @return string
+     */
+    public function summary_badge(?summary $summary, settings $settings): string {
+        if (!$summary) {
+            return '';
+        }
+        return $this->status_cell(
+            $summary->status($settings),
+            $summary->percentage(),
+            get_string('usersummary', 'local_zoomattendance', (object) $summary->counts)
+        );
+    }
+
+    /**
+     * Course attendance table: one column per evaluated occurrence, grouped by activity, and
+     * the course overall.
+     *
+     * @param course_summary $summary
+     * @return string
+     */
+    public function course_table(course_summary $summary): string {
+        $courseid = null;
+        $top = [html_writer::tag('th', get_string('fullnameuser'), ['rowspan' => 2, 'class' => 'local-zoomattendance-name'])];
+        $dates = [];
+        foreach ($summary->activities as $cmid => $activity) {
+            $courseid = $activity->cm->course;
+            $top[] = html_writer::tag('th', html_writer::link(
+                new moodle_url('/local/zoomattendance/report.php', ['id' => $cmid]),
+                format_string($activity->cm->name)
+            ), ['colspan' => count($activity->columns), 'class' => 'text-center']);
+            foreach ($activity->columns as $occurrence) {
+                $dates[] = html_writer::tag('th', html_writer::link(
+                    new moodle_url('/local/zoomattendance/report.php', ['id' => $cmid, 'occurrence' => $occurrence->id]),
+                    userdate($occurrence->timestart, get_string('strftimedatetimeshort', 'langconfig'))
+                ), ['class' => 'text-nowrap']);
+            }
+        }
+        $top[] = html_writer::tag('th', get_string('courseoverall', 'local_zoomattendance'), ['rowspan' => 2]);
+        $head = html_writer::tag('tr', implode('', $top)) . html_writer::tag('tr', implode('', $dates));
+
+        $body = '';
+        foreach ($summary->users as $userid => $user) {
+            $cells = [html_writer::tag('th', html_writer::link(new moodle_url(
+                '/local/zoomattendance/user.php',
+                ['course' => $courseid, 'user' => $userid]
+            ), fullname($user)), ['class' => 'local-zoomattendance-name', 'scope' => 'row'])];
+            foreach ($summary->activities as $activity) {
+                foreach ($activity->columns as $occurrenceid => $occurrence) {
+                    $row = $summary->cells[$userid][$occurrenceid] ?? null;
+                    $cells[] = html_writer::tag('td', $row ? $this->status_cell($row->status, $row->percentage) : '–');
+                }
+            }
+            $cells[] = html_writer::tag('td', $this->summary_badge($summary->overall[$userid] ?? null, $summary->settings));
+            $body .= html_writer::tag('tr', implode('', $cells));
+        }
+
+        $table = html_writer::tag('table', html_writer::tag('thead', $head) . html_writer::tag('tbody', $body), [
+            'class' => 'generaltable table-sm local-zoomattendance-course',
+        ]);
+        return html_writer::div($table, 'table-responsive local-zoomattendance-scroll');
     }
 
     /**

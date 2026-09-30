@@ -47,6 +47,13 @@ who hold `local/zoomattendance:betracked` (students by default) and can access t
 activity. Other matched Moodle users and unmatched Zoom participants are listed
 separately and do not count in the totals.
 
+The course summary has one column per occurrence with session data, showing that
+occurrence's status and percentage, and a *Course overall* column. Course overall is
+total attended time over the total time of the occurrences the participant was expected
+at, so longer occurrences weigh more. Its status uses the site default thresholds, and
+counts as late when the participant joined late in more than half of those occurrences.
+The per-user page shows the same course overall at the top.
+
 The hourly task `\local_zoomattendance\task\sync` snapshots occurrences (mod_zoom may
 later delete past calendar events) and recomputes only occurrences whose source data
 changed. Teachers can also press *Recompute now*.

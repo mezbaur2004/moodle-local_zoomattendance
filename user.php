@@ -25,7 +25,7 @@
 require(__DIR__ . '/../../config.php');
 
 use local_zoomattendance\local\attendance;
-use local_zoomattendance\local\status;
+use local_zoomattendance\local\course_summary;
 use local_zoomattendance\output\renderer;
 
 $courseid = required_param('course', PARAM_INT);
@@ -61,13 +61,19 @@ $output = $PAGE->get_renderer('local_zoomattendance');
 echo $output->header();
 echo $output->heading(get_string('userattendance', 'local_zoomattendance', fullname($user)));
 
+$capability = $ownview ? 'local/zoomattendance:viewown' : 'local/zoomattendance:viewreports';
+$coursesummary = course_summary::build($course, 0, $user->id, $capability);
+if (isset($coursesummary->overall[$user->id])) {
+    echo html_writer::tag('p', get_string('courseoverall', 'local_zoomattendance') . ': ' .
+        $output->summary_badge($coursesummary->overall[$user->id], $coursesummary->settings), ['class' => 'lead']);
+}
+
 $shown = 0;
 foreach (get_fast_modinfo($course)->get_instances_of('zoom') as $cm) {
     if (!$cm->uservisible) {
         continue;
     }
     $context = context_module::instance($cm->id);
-    $capability = $ownview ? 'local/zoomattendance:viewown' : 'local/zoomattendance:viewreports';
     if (!has_capability($capability, $context)) {
         continue;
     }
@@ -88,7 +94,6 @@ foreach (get_fast_modinfo($course)->get_instances_of('zoom') as $cm) {
         get_string('percentage', 'local_zoomattendance'),
         get_string('status', 'local_zoomattendance'),
     ];
-    $counts = [status::PRESENT => 0, status::LATE => 0, status::ABSENT => 0];
     foreach ($occurrences as $occurrence) {
         $evaluation = $attendance->evaluate($occurrence, $candidates, $results[$occurrence->id] ?? []);
         $row = $evaluation->expected[$user->id] ?? $evaluation->notexpected[$user->id] ?? null;
@@ -96,9 +101,6 @@ foreach (get_fast_modinfo($course)->get_instances_of('zoom') as $cm) {
             continue;
         }
         $label = $row->status ?? ($evaluation->state === attendance::STATE_EVALUATED ? null : $evaluation->state);
-        if ($row->status && isset($counts[$row->status])) {
-            $counts[$row->status]++;
-        }
         $table->data[] = [
             s(renderer::window($occurrence)),
             renderer::time($row->firstjoin),
@@ -113,7 +115,6 @@ foreach (get_fast_modinfo($course)->get_instances_of('zoom') as $cm) {
     }
     $shown++;
     echo $output->heading(format_string($cm->name, true, ['context' => $context]), 3);
-    echo html_writer::tag('p', get_string('usersummary', 'local_zoomattendance', (object) $counts));
     echo html_writer::table($table);
 }
 
