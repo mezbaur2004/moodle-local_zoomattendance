@@ -75,32 +75,41 @@ $rows = settings::teacher_tracking() && $hascourses
     ? teacher_overview::rows((int) $USER->id, (bool) $mine, $from, teacher_overview::day_end($to), $categoryid)
     : [];
 
-$columns = [];
-if ($withteacher) {
-    $columns['teacher'] = get_string('teacher', 'local_zoomattendance');
-}
+// The page shows the main figures; the download also has the detail counts.
+$columns = $withteacher ? ['teacher' => get_string('teacher', 'local_zoomattendance')] : [];
 $columns += [
+    'role' => get_string('role'),
     'course' => get_string('course'),
     'expected' => get_string('classes', 'local_zoomattendance'),
     status::PRESENT => get_string('status_present', 'local_zoomattendance'),
     status::PARTIAL => get_string('status_partial', 'local_zoomattendance'),
     status::ABSENT => get_string('status_absent', 'local_zoomattendance'),
-    'notheld' => get_string('ofwhichnotheld', 'local_zoomattendance'),
     'overall' => get_string('teacheroverall', 'local_zoomattendance'),
-    'latestarts' => get_string('latestarts', 'local_zoomattendance'),
-    'earlyleaves' => get_string('earlyleaves', 'local_zoomattendance'),
-    'excluded' => get_string('status_excluded', 'local_zoomattendance'),
-    'excludedbyself' => get_string('excludedbyself', 'local_zoomattendance'),
-    'selflinked' => get_string('selflinked', 'local_zoomattendance'),
+    'notes' => get_string('notes', 'local_zoomattendance'),
 ];
 
 if ($download !== '') {
-    $filecolumns = array_slice($columns, 0, $withteacher ? 2 : 1, true) + ['category' => get_string('category')]
-        + array_slice($columns, $withteacher ? 2 : 1, null, true);
+    $filecolumns = ($withteacher ? ['teacher' => $columns['teacher']] : []) + [
+        'role' => get_string('role'),
+        'course' => get_string('course'),
+        'category' => get_string('category'),
+        'expected' => get_string('classes', 'local_zoomattendance'),
+        status::PRESENT => get_string('status_present', 'local_zoomattendance'),
+        status::PARTIAL => get_string('status_partial', 'local_zoomattendance'),
+        status::ABSENT => get_string('status_absent', 'local_zoomattendance'),
+        'notheld' => get_string('ofwhichnotheld', 'local_zoomattendance'),
+        'overall' => get_string('teacheroverall', 'local_zoomattendance'),
+        'latestarts' => get_string('latestarts', 'local_zoomattendance'),
+        'earlyleaves' => get_string('earlyleaves', 'local_zoomattendance'),
+        'excluded' => get_string('status_excluded', 'local_zoomattendance'),
+        'excludedbyself' => get_string('excludedbyself', 'local_zoomattendance'),
+        'selflinked' => get_string('selflinked', 'local_zoomattendance'),
+    ];
     $categorynames = core_course_category::make_categories_list();
     $records = [];
     foreach ($rows as $row) {
         $record = $withteacher ? ['teacher' => fullname($row->user)] : [];
+        $record['role'] = $row->role;
         $record['course'] = format_string($row->course->fullname, true, ['escape' => false]);
         $record['category'] = $categorynames[$row->course->category] ?? '';
         foreach (array_keys(\local_zoomattendance\local\teacher_summary::empty_stats()) as $key) {
@@ -151,18 +160,17 @@ if (!$rows) {
         if ($withteacher) {
             $cells[] = fullname($row->user);
         }
+        $cells[] = s($row->role);
         // The course page opens on the same date range.
         $cells[] = html_writer::link(
             new moodle_url('/local/zoomattendance/teachers.php', ['id' => $row->course->id, 'fromts' => $from, 'tots' => $to]),
             format_string($row->course->fullname, true, ['context' => context_course::instance($row->course->id)])
         );
-        foreach (['expected', status::PRESENT, status::PARTIAL, status::ABSENT, 'notheld'] as $key) {
+        foreach (['expected', status::PRESENT, status::PARTIAL, status::ABSENT] as $key) {
             $cells[] = $row->stats[$key];
         }
         $cells[] = html_writer::tag('strong', renderer::overall($row->overall));
-        foreach (['latestarts', 'earlyleaves', 'excluded', 'excludedbyself', 'selflinked'] as $key) {
-            $cells[] = $row->stats[$key];
-        }
+        $cells[] = html_writer::span(s(implode(' · ', renderer::teacher_list_notes($row->stats))), 'small');
         $table->data[] = $cells;
     }
     echo html_writer::div(html_writer::table($table), 'table-responsive');

@@ -134,8 +134,10 @@ Zoom classes.
   bottom. A date filter defaults to the course's first class. The download has one row per
   class and teacher.
 - *Teacher attendance: all courses*, under *Site administration > Reports* and in the category
-  menu: one row per teacher and course, with a date range (default the last 30 days) and a
-  category filter. Filtered pages can be bookmarked.
+  menu: one row per teacher and course with their role, classes, present, partial, absent,
+  attendance and notes, a date range (default the last 30 days) and a category filter. The
+  download adds late starts, early leaves and the other detail counts. Filtered pages can be
+  bookmarked.
 - *My teaching attendance*, on a teacher's own profile.
 
 Each page has a *What the statuses mean* legend. Besides Present, Partial and Absent, a class

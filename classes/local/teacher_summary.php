@@ -51,6 +51,8 @@ class teacher_summary {
     public $selflinkers = [];
     /** @var bool[][] userid => occurrence id => true when the teacher's time there includes an identity they linked to themself. */
     public $selflinked = [];
+    /** @var string[] userid => the teacher's roles in the course, as the course names them. */
+    public $roles = [];
 
     /**
      * Counts kept per teacher.
@@ -179,6 +181,7 @@ class teacher_summary {
         uasort($summary->users, function ($a, $b) {
             return strcmp(fullname($a), fullname($b));
         });
+        $summary->roles = self::role_names(\context_course::instance($course->id), array_keys($summary->users));
         usort($summary->classes, function ($a, $b) {
             return ((int) $a->occurrence->timestart <=> (int) $b->occurrence->timestart)
                 ?: ((int) $a->occurrence->id <=> (int) $b->occurrence->id);
@@ -222,6 +225,32 @@ class teacher_summary {
             }
         }
         return $present;
+    }
+
+    /**
+     * Roles assigned in the course itself (not inherited ones such as a site manager's), with
+     * the course's own role renaming applied.
+     *
+     * @param \context_course $context
+     * @param int[] $userids
+     * @return string[] userid => role names joined by commas.
+     */
+    public static function role_names(\context_course $context, array $userids): array {
+        if (!$userids) {
+            return [];
+        }
+        $names = role_get_names($context, ROLENAME_ALIAS, true);
+        $roles = [];
+        foreach (get_users_roles($context, $userids, false) as $userid => $assignments) {
+            $list = [];
+            foreach ($assignments as $assignment) {
+                if (isset($names[$assignment->roleid])) {
+                    $list[$assignment->roleid] = $names[$assignment->roleid];
+                }
+            }
+            $roles[(int) $userid] = implode(', ', $list);
+        }
+        return $roles;
     }
 
     /**

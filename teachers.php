@@ -72,6 +72,7 @@ if ($download !== '' && $summary && $summary->classes) {
     // One row per class and teacher, so the file sorts and filters well in a spreadsheet.
     $columns = [
         'teacher' => get_string('teacher', 'local_zoomattendance'),
+        'role' => get_string('role'),
         'course' => get_string('course'),
         'class' => get_string('class', 'local_zoomattendance'),
         'date' => get_string('date'),
@@ -97,6 +98,7 @@ if ($download !== '' && $summary && $summary->classes) {
             ));
             $rows[] = [
                 'teacher' => fullname($user),
+                'role' => $summary->roles[$userid] ?? '',
                 'course' => format_string($course->fullname, true, ['context' => $context, 'escape' => false]),
                 'class' => format_string($class->cm->name, true, ['escape' => false]),
                 'date' => userdate($class->occurrence->timestart, $timeformat),
