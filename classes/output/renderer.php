@@ -172,8 +172,10 @@ class renderer extends \plugin_renderer_base {
             html_writer::tag('th', get_string('date'), ['scope' => 'col']),
             html_writer::tag('th', get_string('class', 'local_zoomattendance'), ['scope' => 'col']),
         ];
-        foreach ($summary->users as $user) {
-            $head[] = html_writer::tag('th', fullname($user), ['scope' => 'col']);
+        foreach ($summary->users as $userid => $user) {
+            $role = $summary->roles[$userid] ?? '';
+            $rolelabel = $role === '' ? '' : html_writer::div(s($role), 'small text-muted fw-normal font-weight-normal');
+            $head[] = html_writer::tag('th', fullname($user) . $rolelabel, ['scope' => 'col']);
         }
 
         $body = '';
@@ -312,6 +314,30 @@ class renderer extends \plugin_renderer_base {
             'absent' => $stats[status::ABSENT],
             'notheld' => $stats['notheld'],
         ]);
+    }
+
+    /**
+     * Notes for a teacher's row in the list: the counts worth a closer look, when not zero.
+     *
+     * @param int[] $stats See teacher_summary::empty_stats().
+     * @return string[] Plain text.
+     */
+    public static function teacher_list_notes(array $stats): array {
+        $notes = [];
+        if ($stats['notheld']) {
+            $notes[] = get_string('listnote_notheld', 'local_zoomattendance', $stats['notheld']);
+        }
+        if ($stats['excluded']) {
+            $key = $stats['excludedbyself'] ? 'listnote_excludedbyself' : 'listnote_excluded';
+            $notes[] = get_string($key, 'local_zoomattendance', (object) [
+                'excluded' => $stats['excluded'],
+                'byself' => $stats['excludedbyself'],
+            ]);
+        }
+        if ($stats['selflinked']) {
+            $notes[] = get_string('listnote_selflinked', 'local_zoomattendance', $stats['selflinked']);
+        }
+        return $notes;
     }
 
     /**

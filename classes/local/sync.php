@@ -38,6 +38,11 @@ class sync {
     public const SOURCE_INFERRED = 'inferred';
     /** @var string Inferred occurrence whose window a teacher set. */
     public const SOURCE_MANUAL = 'manual';
+    /**
+     * @var string Held class of a fixed-time recurring meeting whose calendar event is gone: the
+     * meeting's regular time and length on that day.
+     */
+    public const SOURCE_PATTERN = 'pattern';
 
     /** @var int Matched by mod_zoom without an email match. */
     public const MATCH_WEAK = 1;
@@ -139,15 +144,22 @@ class sync {
         $dirty = self::snapshot_schedule($instance);
 
         $occurrences = $DB->get_records('local_zoomattendance_occ', ['zoomid' => $zoomid]);
-        // Teacher-set windows are fixed like scheduled ones: sessions map to them first.
-        $scheduled = array_filter($occurrences, function ($o) {
-            return $o->source === self::SOURCE_SCHEDULE || $o->source === self::SOURCE_MANUAL;
+        // Teacher-set and regular-time windows are fixed like scheduled ones: sessions map to them first.
+        $fixed = [self::SOURCE_SCHEDULE, self::SOURCE_MANUAL, self::SOURCE_PATTERN];
+        $scheduled = array_filter($occurrences, function ($o) use ($fixed) {
+            return in_array($o->source, $fixed, true);
         });
         $sessions = zoom_source::get_sessions($zoomid);
 
-        // Map sessions: fixed occurrences first, clusters of the rest become inferred ones.
+        // Map sessions: fixed occurrences first, then the meeting's regular time for held classes
+        // whose calendar event mod_zoom dropped, and clusters of the rest become inferred ones.
         $map = occurrence_mapper::map_to_scheduled($sessions, $scheduled, $earlymargin, $latemargin);
         $unmapped = array_diff_key($sessions, $map);
+        $patterns = self::add_pattern_occurrences($instance, $unmapped, $occurrences, $earlymargin, $latemargin, $dirty);
+        if ($patterns) {
+            $map += occurrence_mapper::map_to_scheduled($unmapped, $patterns, $earlymargin, $latemargin);
+            $unmapped = array_diff_key($sessions, $map);
+        }
         $inferredbykey = [];
         foreach ($occurrences as $occurrence) {
             if ($occurrence->source === self::SOURCE_INFERRED) {
@@ -218,7 +230,13 @@ class sync {
             $DB->delete_records('local_zoomattendance_session', ['id' => $row->id]);
         }
 
-        // Inferred occurrences that no longer have sessions are derived data: drop them.
+        // Inferred and regular-time occurrences that no longer have sessions are derived data: drop them.
+        $withsessions = array_flip(array_values($map));
+        foreach ($occurrences as $occurrence) {
+            if ($occurrence->source === self::SOURCE_PATTERN && !isset($withsessions[$occurrence->id])) {
+                $inferredbykey[] = $occurrence;
+            }
+        }
         foreach ($inferredbykey as $occurrence) {
             $DB->delete_records('local_zoomattendance_result', ['occurrenceid' => $occurrence->id]);
             $DB->delete_records('local_zoomattendance_occ', ['id' => $occurrence->id]);
@@ -319,6 +337,100 @@ class sync {
             }
         }
         return $windows;
+    }
+
+    /**
+     * The regular window of a fixed-time recurring meeting around a moment: its start time of day,
+     * in the meeting's time zone, and its length, on that day or the day before or after,
+     * whichever overlaps the given span most within the margins.
+     *
+     * @param \stdClass $instance A zoom_source::get_instances() record.
+     * @param int $start Span start.
+     * @param int $end Span end.
+     * @param int $earlymargin
+     * @param int $latemargin
+     * @return int[]|null [start, end], or null when the meeting has no fixed time or the span is
+     *     not near its regular time.
+     */
+    public static function pattern_window(\stdClass $instance, int $start, int $end, int $earlymargin, int $latemargin): ?array {
+        $first = (int) $instance->start_time;
+        $duration = (int) $instance->duration;
+        if (empty($instance->recurring) || (int) $instance->recurrence_type === 0 || $first <= 0 || $duration <= 0) {
+            return null;
+        }
+        $zone = new \DateTimeZone(\core_date::normalise_timezone($instance->timezone ?? ''));
+        $timeofday = (new \DateTime('@' . $first))->setTimezone($zone);
+        $best = null;
+        $bestoverlap = -1;
+        foreach ([-1, 0, 1] as $shift) {
+            $day = (new \DateTime('@' . $start))->setTimezone($zone)->modify("$shift day");
+            $day->setTime((int) $timeofday->format('G'), (int) $timeofday->format('i'), (int) $timeofday->format('s'));
+            $from = $day->getTimestamp();
+            $to = $from + $duration;
+            if ($end < $from - $earlymargin || $start > $to + $latemargin) {
+                continue;
+            }
+            $overlap = max(0, min($end, $to + $latemargin) - max($start, $from - $earlymargin));
+            if ($overlap > $bestoverlap) {
+                $best = [$from, $to];
+                $bestoverlap = $overlap;
+            }
+        }
+        return $best;
+    }
+
+    /**
+     * Create regular-time occurrences for held classes of a fixed-time recurring meeting that no
+     * scheduled occurrence covers.
+     *
+     * mod_zoom keeps calendar events only for the occurrences Zoom still lists, which are the
+     * upcoming ones, so classes held before this plugin snapshotted the schedule have no event.
+     * Measuring them against the session span would count waiting time and overruns; the
+     * meeting's regular time is the schedule they followed.
+     *
+     * @param \stdClass $instance
+     * @param \stdClass[] $sessions Sessions not mapped to a fixed occurrence, keyed by details id.
+     * @param \stdClass[] $occurrences The instance's existing occurrences.
+     * @param int $earlymargin
+     * @param int $latemargin
+     * @param array $dirty Occurrence ids to recompute, as keys; new occurrences are added.
+     * @return \stdClass[] The occurrences for these sessions, keyed by id.
+     */
+    protected static function add_pattern_occurrences(
+        \stdClass $instance,
+        array $sessions,
+        array $occurrences,
+        int $earlymargin,
+        int $latemargin,
+        array &$dirty
+    ): array {
+        $added = [];
+        $existing = [];
+        foreach ($occurrences as $occurrence) {
+            $existing[$occurrence->occurrencekey] = $occurrence;
+        }
+        foreach ($sessions as $session) {
+            [$start, $end] = occurrence_mapper::span($session);
+            $window = self::pattern_window($instance, $start, $end, $earlymargin, $latemargin);
+            if (!$window) {
+                continue;
+            }
+            $key = 'p:' . $window[0];
+            if (isset($added[$key])) {
+                continue;
+            }
+            if (isset($existing[$key])) {
+                $added[$key] = $existing[$key];
+                continue;
+            }
+            $added[$key] = self::insert_occurrence((int) $instance->id, $key, self::SOURCE_PATTERN, $window[0], $window[1]);
+            $dirty[$added[$key]->id] = true;
+        }
+        $byid = [];
+        foreach ($added as $occurrence) {
+            $byid[$occurrence->id] = $occurrence;
+        }
+        return $byid;
     }
 
     /**

@@ -25,10 +25,12 @@
 namespace local_zoomattendance\local;
 
 #[\PHPUnit\Framework\Attributes\CoversClass(teacher_overview::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(\local_zoomattendance\output\renderer::class)]
 /**
  * Tests for the teacher attendance list.
  *
  * @covers \local_zoomattendance\local\teacher_overview
+ * @covers \local_zoomattendance\output\renderer
  */
 final class teacher_overview_test extends \advanced_testcase {
     public function test_rows_are_scoped_by_capability_and_category(): void {
@@ -59,6 +61,7 @@ final class teacher_overview_test extends \advanced_testcase {
         $this->assertEquals($teachers[0]->id, $rows[0]->user->id);
         $this->assertSame(1, $rows[0]->stats[status::PRESENT]);
         $this->assertEqualsWithDelta(100.0, $rows[0]->overall->percentage(), 0.01);
+        $this->assertSame('Teacher', $rows[0]->role);
 
         $rows = teacher_overview::rows((int) $manager->id, false, 0, time(), (int) $categories[1]->id);
         $this->assertCount(1, $rows);
@@ -112,6 +115,18 @@ final class teacher_overview_test extends \advanced_testcase {
         // A teacher whose classes in range are all reset has no row.
         $DB->set_field('local_zoomattendance_occ', 'status', sync::STATUS_RESET, ['zoomid' => $cm->instance]);
         $this->assertSame([], teacher_overview::rows((int) $manager->id, false, 0, time()));
+    }
+
+    public function test_list_notes_name_only_counts_above_zero(): void {
+        $stats = teacher_summary::empty_stats();
+        $this->assertSame([], \local_zoomattendance\output\renderer::teacher_list_notes($stats));
+        $stats = array_merge($stats, ['notheld' => 2, 'excluded' => 3, 'excludedbyself' => 1, 'selflinked' => 1]);
+        $this->assertSame(
+            ['2 not held', '3 excluded (1 by the teacher)', '1 self-linked'],
+            \local_zoomattendance\output\renderer::teacher_list_notes($stats)
+        );
+        $stats['excludedbyself'] = 0;
+        $this->assertSame('3 excluded', \local_zoomattendance\output\renderer::teacher_list_notes($stats)[1]);
     }
 
     public function test_day_end_across_daylight_saving(): void {

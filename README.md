@@ -37,7 +37,12 @@ and denominator per activity (*Zoom attendance settings* in the activity's navig
 ## How attendance is calculated
 
 For each scheduled occurrence, every participant's join/leave segments are clipped to the
-scheduled window and merged as an interval union, so overlapping connections are not
+scheduled window, so time in the room before the start or after the end never counts. Zoom
+lists only upcoming occurrences of a recurring meeting, so classes held before the plugin was
+installed have no calendar event. For a recurring meeting with a fixed time, those classes use
+the meeting's regular time and length on that day. Only meetings without a fixed time, or
+sessions at another time of day, fall back to the span the meeting actually ran. Segments are
+merged as an interval union, so overlapping connections are not
 double-counted. Attended time divided by the window length gives the percentage, and the
 thresholds give the status. Statuses are only assigned once mod_zoom has reported a
 session for the occurrence; until then it shows as *Upcoming* or *No session data*.
@@ -93,8 +98,9 @@ automatic matching cannot:
   participant's time merges with the user's own, and the user is marked *Linked manually*.
   *Zoom identity links*, at the bottom of the activity report, lists the course's links and
   can remove them.
-- **Inferred windows.** For occurrences inferred from sessions (meetings without a fixed time),
-  *Set window* in the occurrence list sets the real class time. Time is clipped to it and
+- **Inferred windows.** For occurrences inferred from sessions (meetings without a fixed time)
+  or using a recurring meeting's regular time, *Set window* in the occurrence list sets the
+  real class time. Time is clipped to it and
   percentages are measured against it. *Revert* returns to the inferred window. Scheduled
   windows come from the Zoom activity and cannot be edited here.
 
@@ -134,8 +140,10 @@ Zoom classes.
   bottom. A date filter defaults to the course's first class. The download has one row per
   class and teacher.
 - *Teacher attendance: all courses*, under *Site administration > Reports* and in the category
-  menu: one row per teacher and course, with a date range (default the last 30 days) and a
-  category filter. Filtered pages can be bookmarked.
+  menu: one row per teacher and course with their role, classes, present, partial, absent,
+  attendance and notes, a date range (default the last 30 days) and a category filter. The
+  download adds late starts, early leaves and the other detail counts. Filtered pages can be
+  bookmarked.
 - *My teaching attendance*, on a teacher's own profile.
 
 Each page has a *What the statuses mean* legend. Besides Present, Partial and Absent, a class

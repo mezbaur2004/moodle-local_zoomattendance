@@ -126,14 +126,14 @@ class manual {
     }
 
     /**
-     * Whether a teacher may set the window of an occurrence: only inferred or already manual
-     * ones. Scheduled windows come from mod_zoom and are refreshed from its calendar.
+     * Whether a teacher may set the window of an occurrence: only inferred, regular-time or
+     * already manual ones. Scheduled windows come from mod_zoom and are refreshed from its calendar.
      *
      * @param \stdClass $occurrence
      * @return bool
      */
     public static function can_set_window(\stdClass $occurrence): bool {
-        return in_array($occurrence->source, [sync::SOURCE_INFERRED, sync::SOURCE_MANUAL], true);
+        return in_array($occurrence->source, [sync::SOURCE_INFERRED, sync::SOURCE_PATTERN, sync::SOURCE_MANUAL], true);
     }
 
     /**
@@ -150,7 +150,7 @@ class manual {
     public static function set_window(\stdClass $occurrence, int $start, int $end): bool {
         global $DB, $USER;
         if (!self::can_set_window($occurrence)) {
-            throw new \coding_exception('Only inferred or manual occurrences can have their window set.');
+            throw new \coding_exception('Only inferred, regular-time or manual occurrences can have their window set.');
         }
         if ($end <= $start) {
             throw new \coding_exception('The window must end after it starts.');
@@ -163,7 +163,7 @@ class manual {
             'timemodified' => time(),
             'usermodified' => (int) $USER->id,
         ];
-        if ($occurrence->source === sync::SOURCE_INFERRED) {
+        if ($occurrence->source !== sync::SOURCE_MANUAL) {
             $update->source = sync::SOURCE_MANUAL;
             $update->occurrencekey = 'm:' . sha1($occurrence->occurrencekey . '|' . $occurrence->id);
         }

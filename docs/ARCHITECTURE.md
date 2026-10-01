@@ -342,8 +342,8 @@ Table names start with the component name, as Moodle requires, and stay within M
 |---|---|---|
 | id | int10 PK | |
 | zoomid | int10 | → `zoom.id`, indexed |
-| occurrencekey | char(64) | `event.uuid` for recurring, `'single'` for non-recurring, `'s:'.<details uuid hash>` for inferred |
-| source | char(10) | `schedule` \| `inferred` \| `manual` |
+| occurrencekey | char(64) | `event.uuid` for recurring, `'single'` for non-recurring, `'p:'.<start>` for regular-time, `'s:'.<details uuid hash>` for inferred |
+| source | char(10) | `schedule` \| `pattern` (0.3.2) \| `inferred` \| `manual` |
 | timestart | int10 | scheduled/inferred window start |
 | timeend | int10 | window end |
 | status | int2 | 0 active, 1 cancelled upstream (future occurrence vanished), 2 excluded by teacher |
@@ -595,20 +595,30 @@ is on, we show aggregates only (D10).
    * pick the candidate with the **largest overlap**, and on a tie the nearest start;
    * a session can map to only one occurrence. An occurrence can have many sessions (host
      restarts).
-3. **Sessions matching no occurrence** (ad-hoc start on an unscheduled day, or an occurrence
-   whose event was deleted before our snapshot existed): create an `inferred` occurrence
-   using the fallback below and flag it in the report as "unscheduled".
-4. **Attendance is per occurrence**. The course summary shows every evaluated occurrence as
+3. **Regular meeting time** (since 0.3.2, D26). For a fixed-time recurring meeting
+   (`recurrence_type` 1–3 with `start_time` and `duration`), a session matching no occurrence
+   is tried against the meeting's regular window on that day: `start_time`'s time of day in
+   the meeting's `timezone`, lasting `duration`, with the same margins. On a match it gets a
+   `pattern` occurrence (`occurrencekey = 'p:' . start`). This covers held classes whose event
+   mod_zoom deleted before our snapshot (B2 fragility), which is every past class on a site
+   that installs the plugin late. Pattern occurrences are fixed once created, map before
+   clustering, are dropped like inferred ones when their sessions go, never count as Not held,
+   and teachers can set their window.
+4. **Sessions matching no occurrence** (ad-hoc start at another time, or a meeting without a
+   fixed time): create an `inferred` occurrence using the fallback below and flag it in the
+   report as "unscheduled".
+5. **Attendance is per occurrence**. The course summary shows every evaluated occurrence as
    its own column and one course overall percentage per participant
    (`classes/local/summary.php`): total attended time over the summed denominators of the
    occurrences the participant was expected at. The course overall has no status, because
    statuses describe single occurrences.
-5. **Cancelled/excluded occurrences** (`status` 1/2) are shown but not counted.
+6. **Cancelled/excluded occurrences** (`status` 1/2) are shown but not counted.
 
 ### Fallback for meetings without a fixed schedule
-Applies to `recurring = 1 AND recurrence_type = 0`, to sessions with no mapped occurrence,
-and to cases where the snapshot is missing because the plugin was installed after the fact
-(D11: no attempt to rebuild schedules from the `zoom` recurrence fields).
+Applies to `recurring = 1 AND recurrence_type = 0` and to sessions with no mapped
+occurrence and no regular-time match. Up to 0.3.1 it also applied to fixed-time classes whose
+snapshot was missing because the plugin was installed after the fact; their windows then
+included the time the room was open before and after the class (D11, superseded by D26).
 * **Cluster** the activity's sessions: sort by `start_time` and join consecutive sessions
   when the gap between one's `end_time` and the next `start_time` is ≤ `clustergapmins`
   (admin setting, default 30, D15).
@@ -943,8 +953,12 @@ the rule is a plain one, not Moodle's role-assignment hierarchy. Nobody without
 * **Central list** — `teachersoverview.php`.
   * One row per teacher and course, across every course where the viewer has
     `viewteacherreports` (`get_user_capability_course()`).
-  * Columns: sessions expected, present, partial, absent (of which Not held), overall %, late
-    starts, early leaves, excluded (of which by the teacher), and self-links.
+  * Columns (since 0.3.2): teacher, role, course, classes, present, partial, absent, attendance %
+    and notes. Notes name not held, excluded (of which by the teacher) and self-linked classes
+    when there are any. The download also has category, not held, late starts, early leaves,
+    excluded, excluded by the teacher and self-links.
+  * Role is the teacher's roles assigned in the course, with the course's role renaming; the
+    course page shows it under each teacher's name.
   * Filters: date range (default the last 30 days) and category. It has a download.
   * Linked from *Site administration → Reports* for managers at site level, and from the
     category navigation for managers at category level.
@@ -1109,7 +1123,7 @@ All open questions were resolved by adopting the proposed defaults.
 | **D8** | Default enablement | Opt-in per activity; site setting `defaultenabled` (default off) makes it default-on. |
 | **D9** | Tracked roles | `betracked` is given to the **student** archetype only. Teachers appear under "matched but not expected" unless an admin grants the capability. |
 | **D10** | `maskparticipantdata` | Respected: when on, only aggregates are shown. |
-| **D11** | Past occurrences lost before first snapshot | Inferred windows (B8 fallback) plus manual override. No rebuild from the recurrence fields. |
+| **D11** | Past occurrences lost before first snapshot | Inferred windows (B8 fallback) plus manual override. Superseded for fixed-time meetings by D26. |
 | **D12** | Course reset | Follow mod_zoom's reset; no reset option of our own. |
 | **D13** | Shared `meeting_id` | Detect and show a warning in the activity report. |
 | **D14** | Gradebook | Reports only; no grades written. |
@@ -1124,3 +1138,4 @@ All open questions were resolved by adopting the proposed defaults.
 | **D23** | Teacher course overall | Weighted percentage only, no overall status, as for students (C3). |
 | **D24** | Host detection | Deferred until verified against real Zoom data (C10). |
 | **D25** | Reset | A reset with `reset_zoom_all` marks the course's past occurrences *Zoom data reset* (status 3), never counted, so they do not become Not held (C8, C11). |
+| **D26** | Regular meeting time | Since 0.3.2, a held class of a fixed-time recurring meeting without a calendar event is measured against the meeting's regular time and length on that day, not the span the room was open. |

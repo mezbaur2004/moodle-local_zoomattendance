@@ -286,6 +286,76 @@ final class sync_test extends \advanced_testcase {
         $this->assertSame(0, $DB->count_records('local_zoomattendance_result'));
     }
 
+    public function test_past_classes_without_events_use_the_regular_time(): void {
+        global $DB;
+        $user = $this->getDataGenerator()->create_user();
+        // Weekly at t0's time of day; Zoom only lists upcoming occurrences, so past ones have no event.
+        $cm = $this->generator->create_zoom(['course' => $this->course->id, 'recurring' => 1, 'recurrence_type' => 2,
+            'start_time' => $this->mins(14 * 24 * 60), 'duration' => HOURSECS, 'timezone' => 'UTC']);
+        // The host opened the room 20 minutes early and ran 15 minutes over.
+        $held = $this->generator->create_session($cm, $this->mins(-20), $this->mins(75));
+        $this->generator->create_participant($held, $this->mins(-15), $this->mins(70), ['userid' => $user->id]);
+        // An extra meeting at another time of day stays inferred.
+        $extra = $this->generator->create_session($cm, $this->mins(5 * 60), $this->mins(5 * 60 + 30));
+
+        sync::sync_all();
+        $occurrences = array_values($DB->get_records('local_zoomattendance_occ', ['zoomid' => $cm->instance], 'timestart'));
+        $this->assertCount(2, $occurrences);
+        $this->assertSame(sync::SOURCE_PATTERN, $occurrences[0]->source);
+        $this->assertEquals([$this->mins(0), $this->mins(60)], [$occurrences[0]->timestart, $occurrences[0]->timeend]);
+        $result = $this->results($cm->instance)['u:' . $user->id];
+        $this->assertEquals(HOURSECS, $result->attendedsecs);
+        $this->assertSame(sync::SOURCE_INFERRED, $occurrences[1]->source);
+        $this->assertEquals(
+            $occurrences[1]->id,
+            $DB->get_field('local_zoomattendance_session', 'occurrenceid', ['detailsid' => $extra->id])
+        );
+
+        // Idempotent, and a class whose sessions are gone is dropped like an inferred one.
+        sync::sync_all();
+        $this->assertSame(2, $DB->count_records('local_zoomattendance_occ', ['zoomid' => $cm->instance]));
+        $DB->delete_records('zoom_meeting_participants', ['detailsid' => $held->id]);
+        $DB->delete_records('zoom_meeting_details', ['id' => $held->id]);
+        sync::sync_all();
+        $this->assertSame(0, $DB->count_records('local_zoomattendance_occ', ['source' => sync::SOURCE_PATTERN]));
+    }
+
+    public function test_classes_inferred_before_upgrade_move_to_the_regular_time(): void {
+        global $DB;
+        $cm = $this->generator->create_zoom(['course' => $this->course->id, 'recurring' => 1, 'recurrence_type' => 2,
+            'start_time' => 0, 'duration' => HOURSECS, 'timezone' => 'UTC']);
+        $this->generator->create_session($cm, $this->mins(-20), $this->mins(75));
+        sync::sync_all();
+        $source = $DB->get_field('local_zoomattendance_occ', 'source', ['zoomid' => $cm->instance]);
+        $this->assertSame(sync::SOURCE_INFERRED, $source);
+
+        $DB->set_field('zoom', 'start_time', $this->mins(14 * 24 * 60), ['id' => $cm->instance]);
+        sync::sync_all();
+        $occurrence = $DB->get_record('local_zoomattendance_occ', ['zoomid' => $cm->instance], '*', MUST_EXIST);
+        $this->assertSame(sync::SOURCE_PATTERN, $occurrence->source);
+        $this->assertEquals(HOURSECS, $occurrence->actualsecs);
+    }
+
+    public function test_pattern_window_follows_the_meeting_time_zone(): void {
+        $london = new \DateTimeZone('Europe/London');
+        $instance = (object) [
+            'recurring' => 1,
+            'recurrence_type' => 2,
+            // 10:00 in London in winter (UTC+0).
+            'start_time' => (new \DateTime('2026-01-12 10:00', $london))->getTimestamp(),
+            'duration' => HOURSECS,
+            'timezone' => 'Europe/London',
+        ];
+        // A summer class at 10:00 London time is 09:00 UTC.
+        $summer = (new \DateTime('2026-06-15 09:00', new \DateTimeZone('UTC')))->getTimestamp();
+        $window = sync::pattern_window($instance, $summer - 600, $summer + 3000, 1800, 1800);
+        $this->assertSame([$summer, $summer + HOURSECS], $window);
+        // Far from the regular time, or without a fixed time, there is no window.
+        $this->assertNull(sync::pattern_window($instance, $summer + 5 * HOURSECS, $summer + 6 * HOURSECS, 1800, 1800));
+        $instance->recurrence_type = 0;
+        $this->assertNull(sync::pattern_window($instance, $summer, $summer + HOURSECS, 1800, 1800));
+    }
+
     public function test_results_mirror_deleted_source_rows(): void {
         global $DB;
         $user = $this->getDataGenerator()->create_user();

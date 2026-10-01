@@ -48,7 +48,7 @@ class zoom_source {
             $where[] = 'z.id = :zoomid';
             $params['zoomid'] = $zoomid;
         }
-        $sql = "SELECT z.id, z.course, z.name, z.meeting_id, z.start_time, z.duration, z.recurring,
+        $sql = "SELECT z.id, z.course, z.name, z.meeting_id, z.start_time, z.duration, z.timezone, z.recurring,
                        z.recurrence_type, cm.id AS cmid,
                        s.id AS s_id, s.enabled AS s_enabled, s.presentpct AS s_presentpct, s.latepct AS s_latepct,
                        s.lategracemins AS s_lategracemins, s.denominator AS s_denominator

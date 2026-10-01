@@ -63,6 +63,17 @@ final class teacher_access_test extends \advanced_testcase {
         $summary = teacher_summary::build($course, $visible);
         $this->assertEquals([$editor->id, $assistant->id], array_keys($summary->users));
 
+        // Each teacher's course roles, with the course's own role names.
+        $DB->insert_record('role_names', [
+            'roleid' => $DB->get_field('role', 'id', ['shortname' => 'teacher']),
+            'contextid' => $context->id,
+            'name' => 'Coordinator',
+        ]);
+        $roles = teacher_summary::build($course)->roles;
+        $this->assertSame('Teacher', $roles[$editor->id]);
+        $this->assertSame('Coordinator', $roles[$assistant->id]);
+        $this->assertSame([], teacher_summary::role_names($context, []));
+
         // Non-editing teachers: only themself.
         $this->assertFalse(teacher_access::can_view($context, (int) $editor->id, (int) $assistant->id));
         $this->assertTrue(teacher_access::can_view($context, (int) $assistant->id, (int) $assistant->id));
