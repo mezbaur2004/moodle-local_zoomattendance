@@ -8,8 +8,8 @@
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
         <FIELD NAME="zoomid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="The zoom.id of the activity instance."/>
-        <FIELD NAME="occurrencekey" TYPE="char" LENGTH="64" NOTNULL="true" SEQUENCE="false" COMMENT="Calendar event uuid, 'single', 's:' plus a hash for inferred occurrences, or 'm:' plus a hash for manual ones."/>
-        <FIELD NAME="source" TYPE="char" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="schedule, inferred, or manual (window set by a teacher)."/>
+        <FIELD NAME="occurrencekey" TYPE="char" LENGTH="64" NOTNULL="true" SEQUENCE="false" COMMENT="Calendar event uuid, 'single', 'p:' plus the start for regular-time ones, 's:' plus a hash for inferred ones, or 'm:' plus a hash for manual ones."/>
+        <FIELD NAME="source" TYPE="char" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="schedule, pattern (regular meeting time), inferred, or manual (window set by a teacher)."/>
         <FIELD NAME="timestart" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Window start."/>
         <FIELD NAME="timeend" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Window end."/>
         <FIELD NAME="status" TYPE="int" LENGTH="2" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="0 active, 1 cancelled upstream, 2 excluded by a teacher, 3 before a reset of the course's Zoom data."/>

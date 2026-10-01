@@ -183,6 +183,7 @@ $string['showingrange'] = 'Showing classes from {$a->from} to {$a->to}.';
 $string['source'] = 'Source';
 $string['source_inferred'] = 'Inferred from sessions';
 $string['source_manual'] = 'Set by teacher';
+$string['source_pattern'] = 'Regular meeting time';
 $string['source_schedule'] = 'Scheduled';
 $string['state'] = 'State';
 $string['status'] = 'Status';
