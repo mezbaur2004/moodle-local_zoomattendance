@@ -90,6 +90,12 @@ if ($masked) {
     echo $output->notification(get_string('nooccurrencedata', 'local_zoomattendance'), 'info');
 } else {
     echo html_writer::tag('p', get_string('coursesummary_help', 'local_zoomattendance'), ['class' => 'text-muted']);
+    $defaults = \local_zoomattendance\local\settings::site_defaults();
+    echo html_writer::tag('p', html_writer::tag('strong', get_string('courseoverall', 'local_zoomattendance')) . ': ' .
+        get_string('overallmeter_help', 'local_zoomattendance', (object) [
+            'present' => $defaults->presentpct,
+            'partial' => $defaults->latepct,
+        ]), ['class' => 'small text-muted']);
     echo $output->course_table($summary);
     echo $output->download_dataformat_selector(
         get_string('download'),

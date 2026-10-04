@@ -63,6 +63,10 @@ total attended time over the total time of the occurrences the participant was e
 at, so longer occurrences weigh more. It is a percentage only, with no status. The
 per-user page shows the same course overall at the top.
 
+Each occurrence cell has a slim bar in its status colour. Course overall has a bar with a line at
+the Present threshold of the site defaults, green from Present, orange from Partial and red below;
+the colours are a visual cue, not a status.
+
 A participant is *partial* when they joined but are not present: they stayed below the
 present threshold (for example joined on time and left early) or joined after the late
 period.
@@ -146,7 +150,9 @@ Zoom classes.
   bookmarked.
 - *My teaching attendance*, on a teacher's own profile.
 
-Each page has a *What the statuses mean* legend. Besides Present, Partial and Absent, a class
+Each class shows a slim bar in its status colour, and each overall figure a bar with a line at
+the Present threshold: green from Present, orange from Partial, red below. Each page has a
+*What the statuses mean* legend. Besides Present, Partial and Absent, a class
 can show *Not held* (counts as absent), *Excluded*, *Awaiting Zoom report* or *Zoom data reset*
 (none of these three counts).
 

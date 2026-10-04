@@ -169,7 +169,7 @@ if (!$rows) {
         foreach (['expected', status::PRESENT, status::PARTIAL, status::ABSENT] as $key) {
             $cells[] = $row->stats[$key];
         }
-        $cells[] = html_writer::tag('strong', renderer::overall($row->overall));
+        $cells[] = $output->overall_meter($row->overall, settings::teacher());
         $cells[] = html_writer::span(s(implode(' · ', renderer::teacher_list_notes($row->stats))), 'small');
         $table->data[] = $cells;
     }

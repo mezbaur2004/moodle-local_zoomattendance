@@ -12,3 +12,75 @@
     background-color: #fff;
     background-color: var(--bs-body-bg, var(--white, #fff));
 }
+
+/* Slim bar under a class's status and percentage, in the status colour. */
+.local-zoomattendance-statusbar {
+    height: 3px;
+    min-width: 3.5rem;
+    margin-top: 3px;
+    border-radius: 2px;
+    background-color: rgba(0, 0, 0, .08);
+}
+
+.local-zoomattendance-statusbar > div {
+    height: 100%;
+    border-radius: 2px;
+}
+
+/* Overall percentage: the number, then a bar with a line at the Present threshold. */
+.local-zoomattendance-meter {
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+}
+
+.local-zoomattendance-meter-value {
+    flex-shrink: 0;
+    min-width: 3.5rem;
+    margin-right: .5rem;
+}
+
+.local-zoomattendance-meter-track {
+    position: relative;
+    flex: 0 0 5rem;
+    height: 6px;
+    border-radius: 3px;
+    background-color: rgba(0, 0, 0, .08);
+}
+
+.local-zoomattendance-meter-fill {
+    height: 100%;
+    border-radius: 3px;
+}
+
+.local-zoomattendance-meter-marker {
+    position: absolute;
+    top: -3px;
+    width: 2px;
+    height: 12px;
+    margin-left: -1px;
+    border-radius: 1px;
+    background-color: rgba(0, 0, 0, .45);
+}
+
+/* The same, larger, for a figure on its own (the course overall on a user's page). */
+.local-zoomattendance-meter-large .local-zoomattendance-meter-value {
+    min-width: 5rem;
+    margin-right: .75rem;
+    font-size: 1.75rem;
+}
+
+.local-zoomattendance-meter-large .local-zoomattendance-meter-track {
+    flex: 0 1 20rem;
+    height: 10px;
+    border-radius: 5px;
+}
+
+.local-zoomattendance-meter-large .local-zoomattendance-meter-fill {
+    border-radius: 5px;
+}
+
+.local-zoomattendance-meter-large .local-zoomattendance-meter-marker {
+    top: -4px;
+    height: 18px;
+}

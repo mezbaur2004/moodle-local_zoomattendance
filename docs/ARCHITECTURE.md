@@ -1107,6 +1107,23 @@ without Zoom courses.
 
 ---
 
+## C13. 0.3.3 attendance bars
+
+Display only: no data, settings or downloads change.
+
+* **Class cells** (course report, teacher page, a user's page, an occurrence's detail): a 3 px bar
+  under the status and percentage, filled to the percentage in the status colour (green Present,
+  orange Partial, red Absent). No threshold line: the badge already says whether the threshold was
+  met. States without a percentage (not held, excluded, awaiting, reset, not expected) get no bar.
+  The bar is `aria-hidden`; the badge and number carry the meaning.
+* **Overall figures** (Course overall on the course report and a user's page, Attendance on the
+  teacher page and the teacher list): the percentage, then a bar with a line at the Present
+  threshold, green from Present, orange from Partial and red below, as the status badges are.
+  Course overall uses the site default thresholds, as it spans activities; teacher figures use
+  the teacher thresholds. The bands are a visual cue only: Course overall still has no status (C3).
+* A user's own page shows Course overall large at the top, with one line explaining the colours.
+  The class tables there now scroll inside their own box on narrow screens.
+
 ## Decisions
 
 All open questions were resolved by adopting the proposed defaults.
