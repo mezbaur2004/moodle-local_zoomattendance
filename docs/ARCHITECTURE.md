@@ -1124,6 +1124,22 @@ Display only: no data, settings or downloads change.
 * A user's own page shows Course overall large at the top, with one line explaining the colours.
   The class tables there now scroll inside their own box on narrow screens.
 
+## C14. 0.3.4 "When joined"
+
+Every teacher is expected at every class (D18), so in a course whose teachers share the classes,
+the Attendance figure also counts the classes a teacher was never meant to teach. *When joined*
+is a second figure beside it: attended time over scheduled time of only the counted classes the
+teacher joined (any time inside the class window). Classes they missed, and classes not held,
+are left out; excluded, awaiting and reset classes are not counted in either figure.
+
+* `teacher_summary::$joined` (userid => summary) and the `joined` count in `empty_stats()`.
+* Shown on the course teacher page (a row under Attendance, with "n of m classes joined"), on
+  the teacher list (a column, and *Classes joined* and *When joined* in its download), and in
+  the dashboard block. The course page download marks each counted class Joined Yes / No.
+* Coloured like Attendance, against the teacher thresholds. It does not replace Attendance:
+  a teacher who joins few classes but stays for them shows a high *When joined* and a low
+  Attendance.
+
 ## Decisions
 
 All open questions were resolved by adopting the proposed defaults.
@@ -1156,3 +1172,4 @@ All open questions were resolved by adopting the proposed defaults.
 | **D24** | Host detection | Deferred until verified against real Zoom data (C10). |
 | **D25** | Reset | A reset with `reset_zoom_all` marks the course's past occurrences *Zoom data reset* (status 3), never counted, so they do not become Not held (C8, C11). |
 | **D26** | Regular meeting time | Since 0.3.2, a held class of a fixed-time recurring meeting without a calendar event is measured against the meeting's regular time and length on that day, not the span the room was open. |
+| **D27** | When joined | Since 0.3.4, teachers also get attendance over only the classes they joined, beside Attendance (C14). |

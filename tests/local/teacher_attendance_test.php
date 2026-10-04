@@ -241,6 +241,9 @@ final class teacher_attendance_test extends \advanced_testcase {
         $this->assertSame(1, $stats['excludedbyself']);
         // 42 of 120 minutes.
         $this->assertEqualsWithDelta(35.0, $summary->overall[$teacher->id]->percentage(), 0.01);
+        // When joined leaves out the class that was not held: 42 of 60 minutes.
+        $this->assertSame(1, $stats['joined']);
+        $this->assertEqualsWithDelta(70.0, $summary->joined[$teacher->id]->percentage(), 0.01);
         $this->assertSame(0, $summary->stats[$other->id]['excludedbyself']);
         $this->assertSame((int) $teacher->id, (int) $summary->excludedby[$occurrence->id]->id);
 

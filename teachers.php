@@ -28,6 +28,7 @@ use local_zoomattendance\form\teacher_filter;
 use local_zoomattendance\local\attendance;
 use local_zoomattendance\local\settings;
 use local_zoomattendance\local\teacher_access;
+use local_zoomattendance\local\teacher_attendance;
 use local_zoomattendance\local\teacher_overview;
 use local_zoomattendance\local\teacher_summary;
 use local_zoomattendance\output\renderer;
@@ -78,6 +79,7 @@ if ($download !== '' && $summary && $summary->classes) {
         'date' => get_string('date'),
         'status' => get_string('status', 'local_zoomattendance'),
         'percentage' => get_string('percentage', 'local_zoomattendance'),
+        'joined' => get_string('joinedclass', 'local_zoomattendance'),
         'latemins' => get_string('latemins', 'local_zoomattendance'),
         'earlymins' => get_string('earlymins', 'local_zoomattendance'),
         'note' => get_string('note', 'local_zoomattendance'),
@@ -104,6 +106,9 @@ if ($download !== '' && $summary && $summary->classes) {
                 'date' => userdate($class->occurrence->timestart, $timeformat),
                 'status' => get_string('status_' . ($evaluated ? $row->status : $class->state), 'local_zoomattendance'),
                 'percentage' => $row->percentage === null ? '' : round($row->percentage, 1),
+                // Whether the class counts towards "When joined".
+                'joined' => teacher_attendance::counts($class->state)
+                    ? get_string((int) $row->attendedsecs > 0 ? 'yes' : 'no') : '',
                 'latemins' => $evaluated && $row->firstjoin !== null ? intdiv($row->latesecs, MINSECS) : '',
                 'earlymins' => $evaluated && $row->lastleave !== null ? intdiv($row->earlysecs, MINSECS) : '',
                 'note' => implode('; ', $notes),
