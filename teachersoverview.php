@@ -85,6 +85,7 @@ $columns += [
     status::PARTIAL => get_string('status_partial', 'local_zoomattendance'),
     status::ABSENT => get_string('status_absent', 'local_zoomattendance'),
     'overall' => get_string('teacheroverall', 'local_zoomattendance'),
+    'joinedoverall' => get_string('whenjoined', 'local_zoomattendance'),
     'notes' => get_string('notes', 'local_zoomattendance'),
 ];
 
@@ -99,6 +100,8 @@ if ($download !== '') {
         status::ABSENT => get_string('status_absent', 'local_zoomattendance'),
         'notheld' => get_string('ofwhichnotheld', 'local_zoomattendance'),
         'overall' => get_string('teacheroverall', 'local_zoomattendance'),
+        'joined' => get_string('classesjoined', 'local_zoomattendance'),
+        'joinedoverall' => get_string('whenjoined', 'local_zoomattendance'),
         'latestarts' => get_string('latestarts', 'local_zoomattendance'),
         'earlyleaves' => get_string('earlyleaves', 'local_zoomattendance'),
         'excluded' => get_string('status_excluded', 'local_zoomattendance'),
@@ -116,6 +119,7 @@ if ($download !== '') {
             $record[$key] = $row->stats[$key];
         }
         $record['overall'] = $row->overall ? round($row->overall->percentage(), 1) : '';
+        $record['joinedoverall'] = $row->joined ? round($row->joined->percentage(), 1) : '';
         $records[] = array_merge(array_fill_keys(array_keys($filecolumns), ''), $record);
     }
     \core\dataformat::download_data(
@@ -170,6 +174,7 @@ if (!$rows) {
             $cells[] = $row->stats[$key];
         }
         $cells[] = $output->overall_meter($row->overall, settings::teacher());
+        $cells[] = $output->joined_meter($row->joined, $row->stats, settings::teacher());
         $cells[] = html_writer::span(s(implode(' · ', renderer::teacher_list_notes($row->stats))), 'small');
         $table->data[] = $cells;
     }

@@ -150,7 +150,7 @@ class teacher_overview {
      * @param int $from Occurrences starting at or after this time.
      * @param int $to Occurrences starting before this time.
      * @param int $categoryid Limit to a category (0 for all).
-     * @return \stdClass[] Each with user, role, course, stats and overall; sorted by teacher then course.
+     * @return \stdClass[] Each with user, role, course, stats, overall and joined; sorted by teacher then course.
      */
     public static function rows(int $viewerid, bool $mine, int $from, int $to, int $categoryid = 0): array {
         $capability = $mine ? self::MINE_CAPABILITIES : 'local/zoomattendance:viewteacherreports';
@@ -170,6 +170,7 @@ class teacher_overview {
                     'course' => $course,
                     'stats' => $summary->stats[$userid],
                     'overall' => $summary->overall[$userid] ?? null,
+                    'joined' => $summary->joined[$userid] ?? null,
                 ];
             }
         }

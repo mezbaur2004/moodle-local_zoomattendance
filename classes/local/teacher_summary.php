@@ -43,6 +43,11 @@ class teacher_summary {
     public $cells = [];
     /** @var summary[] userid => overall percentage over the counted columns. */
     public $overall = [];
+    /**
+     * @var summary[] userid => percentage over only the counted columns the teacher joined
+     * ("when joined"): classes they missed, or that were not held, are left out.
+     */
+    public $joined = [];
     /** @var array[] userid => counts, see empty_stats(). */
     public $stats = [];
     /** @var \stdClass[] occurrence id => user who excluded it, for excluded columns. */
@@ -62,6 +67,7 @@ class teacher_summary {
     public static function empty_stats(): array {
         return [
             'expected' => 0,
+            'joined' => 0,
             status::PRESENT => 0,
             status::PARTIAL => 0,
             status::ABSENT => 0,
@@ -157,6 +163,12 @@ class teacher_summary {
                         }
                         $summary->overall[$id] = $summary->overall[$id] ?? new summary();
                         $summary->overall[$id]->add($row, $evaluation);
+                        // Joined: any time inside the class window.
+                        if ((int) $row->attendedsecs > 0) {
+                            $stats['joined']++;
+                            $summary->joined[$id] = $summary->joined[$id] ?? new summary();
+                            $summary->joined[$id]->add($row, $evaluation);
+                        }
                     }
                     $summary->stats[$id] = $stats;
                 }

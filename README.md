@@ -150,6 +150,10 @@ Zoom classes.
   bookmarked.
 - *My teaching attendance*, on a teacher's own profile.
 
+Beside each teacher's Attendance, *When joined* counts only the classes the teacher joined:
+classes they missed or that were not held are left out. It shows how fully a teacher attends the
+classes they do take, which matters where several teachers share a course's classes.
+
 Each class shows a slim bar in its status colour, and each overall figure a bar with a line at
 the Present threshold: green from Present, orange from Partial, red below. Each page has a
 *What the statuses mean* legend. Besides Present, Partial and Absent, a class

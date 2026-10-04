@@ -102,6 +102,13 @@ final class renderer_test extends \advanced_testcase {
         $this->assertStringContainsString('bg-warning', $teacher);
         $this->assertStringContainsString('left: 90%;', $teacher);
 
+        // When joined: the bar, and how many classes it covers.
+        $stats = ['joined' => 1, 'expected' => 2] + \local_zoomattendance\local\teacher_summary::empty_stats();
+        $joined = $renderer->joined_meter($this->summary(70), $stats, settings::teacher());
+        $this->assertStringContainsString('70.0%', $joined);
+        $this->assertStringContainsString('1 of 2 classes joined', $joined);
+        $this->assertSame('–', $renderer->joined_meter(null, $stats, settings::teacher()));
+
         // Nothing evaluated, nothing shown.
         $this->assertSame('', $renderer->overall_meter(null, $defaults));
         $this->assertSame('', $renderer->overall_meter(new summary(), $defaults));

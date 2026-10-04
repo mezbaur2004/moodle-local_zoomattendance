@@ -164,6 +164,25 @@ class renderer extends \plugin_renderer_base {
     }
 
     /**
+     * A teacher's attendance over only the classes they joined, with how many those were.
+     *
+     * @param summary|null $joined From teacher_summary::$joined.
+     * @param int[] $stats From teacher_summary::empty_stats().
+     * @param \local_zoomattendance\local\settings $thresholds Teacher thresholds.
+     * @return string '–' when the teacher joined no counted class.
+     */
+    public function joined_meter(?summary $joined, array $stats, \local_zoomattendance\local\settings $thresholds): string {
+        $meter = $this->overall_meter($joined, $thresholds);
+        if ($meter === '') {
+            return '–';
+        }
+        return $meter . html_writer::div(get_string('joinedof', 'local_zoomattendance', (object) [
+            'joined' => $stats['joined'],
+            'classes' => $stats['expected'],
+        ]), 'small text-muted');
+    }
+
+    /**
      * A percentage as a CSS width, kept within 0 and 100.
      *
      * @param float $pct
@@ -280,6 +299,11 @@ class renderer extends \plugin_renderer_base {
             'scope' => 'row',
             'colspan' => 2,
         ])];
+        $joined = [html_writer::tag('th', get_string('whenjoined', 'local_zoomattendance'), [
+            'scope' => 'row',
+            'colspan' => 2,
+            'title' => get_string('whenjoined_help', 'local_zoomattendance'),
+        ])];
         $counts = [html_writer::tag('th', get_string('classescounted', 'local_zoomattendance'), [
             'scope' => 'row',
             'colspan' => 2,
@@ -287,9 +311,15 @@ class renderer extends \plugin_renderer_base {
         $thresholds = \local_zoomattendance\local\settings::teacher();
         foreach ($summary->users as $userid => $user) {
             $overall[] = html_writer::tag('td', $this->overall_meter($summary->overall[$userid] ?? null, $thresholds) ?: '–');
+            $joined[] = html_writer::tag('td', $this->joined_meter(
+                $summary->joined[$userid] ?? null,
+                $summary->stats[$userid] ?? teacher_summary::empty_stats(),
+                $thresholds
+            ));
             $counts[] = html_writer::tag('td', s(self::teacher_counts($summary->stats[$userid] ?? teacher_summary::empty_stats())));
         }
-        $foot = html_writer::tag('tr', implode('', $overall)) . html_writer::tag('tr', implode('', $counts));
+        $foot = html_writer::tag('tr', implode('', $overall)) . html_writer::tag('tr', implode('', $joined))
+            . html_writer::tag('tr', implode('', $counts));
 
         $table = html_writer::tag('table', html_writer::tag('thead', html_writer::tag('tr', implode('', $head))) .
             html_writer::tag('tbody', $body) . html_writer::tag('tfoot', $foot), [
@@ -325,6 +355,7 @@ class renderer extends \plugin_renderer_base {
         }
         $list .= html_writer::tag('li', s(get_string('legend_minutes', 'local_zoomattendance', $a)));
         $list .= html_writer::tag('li', s(get_string('legend_bars', 'local_zoomattendance', $a)));
+        $list .= html_writer::tag('li', s(get_string('whenjoined_help', 'local_zoomattendance')));
         $list .= html_writer::tag('li', s(get_string('legend_selflinked', 'local_zoomattendance')));
         return html_writer::tag('details', html_writer::tag('summary', get_string('legend', 'local_zoomattendance')) .
             html_writer::tag('ul', $list, ['class' => 'list-unstyled mt-2 mb-0']), ['class' => 'mb-3']);
