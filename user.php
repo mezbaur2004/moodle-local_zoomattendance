@@ -68,8 +68,17 @@ echo $output->heading(get_string('userattendance', 'local_zoomattendance', fulln
 $capability = $ownview ? 'local/zoomattendance:viewown' : 'local/zoomattendance:viewreports';
 $coursesummary = course_summary::build($course, 0, $user->id, $capability);
 if (isset($coursesummary->overall[$user->id])) {
-    echo html_writer::tag('p', get_string('courseoverall', 'local_zoomattendance') . ': ' .
-        renderer::overall($coursesummary->overall[$user->id]), ['class' => 'lead']);
+    // Course overall spans activities, so it is marked against the site default thresholds.
+    $defaults = \local_zoomattendance\local\settings::site_defaults();
+    echo html_writer::div(
+        html_writer::div(get_string('courseoverall', 'local_zoomattendance'), 'lead mb-1')
+            . $output->overall_meter($coursesummary->overall[$user->id], $defaults, true)
+            . html_writer::div(get_string('overallmeter_help', 'local_zoomattendance', (object) [
+                'present' => $defaults->presentpct,
+                'partial' => $defaults->latepct,
+            ]), 'small text-muted mt-1'),
+        'mb-4'
+    );
 }
 
 $shown = 0;
@@ -110,7 +119,7 @@ foreach (get_fast_modinfo($course)->get_instances_of('zoom') as $cm) {
             renderer::time($row->firstjoin),
             renderer::time($row->lastleave),
             renderer::duration($row->attendedsecs),
-            renderer::percentage($row->percentage),
+            renderer::percentage($row->percentage) . $output->status_bar($row->status, $row->percentage),
             $label ? $output->badge($label) : get_string('notexpected', 'local_zoomattendance'),
         ];
     }
@@ -119,7 +128,7 @@ foreach (get_fast_modinfo($course)->get_instances_of('zoom') as $cm) {
     }
     $shown++;
     echo $output->heading(format_string($cm->name, true, ['context' => $context]), 3);
-    echo html_writer::table($table);
+    echo html_writer::div(html_writer::table($table), 'table-responsive');
 }
 
 if (!$shown) {

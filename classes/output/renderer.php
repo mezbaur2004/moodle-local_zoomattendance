@@ -85,7 +85,7 @@ class renderer extends \plugin_renderer_base {
     }
 
     /**
-     * Status badge followed by the percentage.
+     * Status badge followed by the percentage, with a slim bar under them in the status colour.
      *
      * @param string|null $status A status constant.
      * @param float|null $pct
@@ -95,10 +95,82 @@ class renderer extends \plugin_renderer_base {
         if ($status === null) {
             return '';
         }
-        return html_writer::span(
-            trim($this->badge($status) . ' ' . self::percentage($pct)),
-            'local-zoomattendance-status text-nowrap'
+        return html_writer::div(
+            html_writer::span(trim($this->badge($status) . ' ' . self::percentage($pct)), 'text-nowrap')
+                . $this->status_bar($status, $pct),
+            'local-zoomattendance-status'
         );
+    }
+
+    /**
+     * A slim bar filled to a class percentage, in its status colour. It only repeats what the
+     * badge and number say, so screen readers skip it.
+     *
+     * @param string|null $status A status constant.
+     * @param float|null $pct
+     * @return string Empty when there is no status or percentage to show.
+     */
+    public function status_bar(?string $status, ?float $pct): string {
+        $variants = [status::PRESENT => 'success', status::PARTIAL => 'warning', status::ABSENT => 'danger'];
+        if ($pct === null || !isset($variants[$status])) {
+            return '';
+        }
+        return html_writer::div(
+            html_writer::div('', 'bg-' . $variants[$status], ['style' => 'width: ' . self::bar_width($pct) . '%;']),
+            'local-zoomattendance-statusbar',
+            ['aria-hidden' => 'true']
+        );
+    }
+
+    /**
+     * An overall percentage with a bar and a line at the Present threshold. The bar is green from
+     * the Present threshold, orange from the Partial threshold and red below it, as the status
+     * badges are.
+     *
+     * @param summary|null $summary
+     * @param \local_zoomattendance\local\settings $settings Thresholds: the site defaults, or the
+     *     teacher thresholds for teachers.
+     * @param bool $large A bigger version, for a figure on its own.
+     * @return string The percentage alone when the bar has nothing to show, '' without a summary.
+     */
+    public function overall_meter(?summary $summary, \local_zoomattendance\local\settings $settings, bool $large = false): string {
+        $pct = $summary ? $summary->percentage() : null;
+        if ($pct === null) {
+            return '';
+        }
+        if ($pct >= $settings->presentpct) {
+            $variant = 'success';
+        } else if ($pct >= $settings->latepct) {
+            $variant = 'warning';
+        } else {
+            $variant = 'danger';
+        }
+        $marker = get_string('presentmarker', 'local_zoomattendance', $settings->presentpct);
+        $track = html_writer::div(
+            html_writer::div('', 'local-zoomattendance-meter-fill bg-' . $variant, [
+                'style' => 'width: ' . self::bar_width($pct) . '%;',
+            ])
+            . html_writer::div('', 'local-zoomattendance-meter-marker', [
+                'style' => 'left: ' . self::bar_width($settings->presentpct) . '%;',
+            ]),
+            'local-zoomattendance-meter-track',
+            ['aria-hidden' => 'true']
+        );
+        return html_writer::div(
+            html_writer::tag('strong', self::percentage($pct), ['class' => 'local-zoomattendance-meter-value']) . $track,
+            'local-zoomattendance-meter' . ($large ? ' local-zoomattendance-meter-large' : ''),
+            ['title' => $marker]
+        );
+    }
+
+    /**
+     * A percentage as a CSS width, kept within 0 and 100.
+     *
+     * @param float $pct
+     * @return float
+     */
+    protected static function bar_width(float $pct): float {
+        return round(max(0, min(100, $pct)), 1);
     }
 
     /**
@@ -138,6 +210,8 @@ class renderer extends \plugin_renderer_base {
         $top[] = html_writer::tag('th', get_string('courseoverall', 'local_zoomattendance'), ['rowspan' => 2]);
         $head = html_writer::tag('tr', implode('', $top)) . html_writer::tag('tr', implode('', $dates));
 
+        // Course overall spans activities, so it is marked against the site default thresholds.
+        $sitedefaults = \local_zoomattendance\local\settings::site_defaults();
         $body = '';
         foreach ($summary->users as $userid => $user) {
             $cells = [html_writer::tag('th', html_writer::link(new moodle_url(
@@ -150,7 +224,7 @@ class renderer extends \plugin_renderer_base {
                     $cells[] = html_writer::tag('td', $row ? $this->status_cell($row->status, $row->percentage) : '–');
                 }
             }
-            $cells[] = html_writer::tag('td', self::overall($summary->overall[$userid] ?? null));
+            $cells[] = html_writer::tag('td', $this->overall_meter($summary->overall[$userid] ?? null, $sitedefaults));
             $body .= html_writer::tag('tr', implode('', $cells));
         }
 
@@ -210,9 +284,9 @@ class renderer extends \plugin_renderer_base {
             'scope' => 'row',
             'colspan' => 2,
         ])];
+        $thresholds = \local_zoomattendance\local\settings::teacher();
         foreach ($summary->users as $userid => $user) {
-            $percentage = self::overall($summary->overall[$userid] ?? null) ?: '–';
-            $overall[] = html_writer::tag('td', html_writer::tag('strong', $percentage));
+            $overall[] = html_writer::tag('td', $this->overall_meter($summary->overall[$userid] ?? null, $thresholds) ?: '–');
             $counts[] = html_writer::tag('td', s(self::teacher_counts($summary->stats[$userid] ?? teacher_summary::empty_stats())));
         }
         $foot = html_writer::tag('tr', implode('', $overall)) . html_writer::tag('tr', implode('', $counts));
@@ -250,6 +324,7 @@ class renderer extends \plugin_renderer_base {
             $list .= html_writer::tag('li', $this->badge($status) . ' ' . s($text));
         }
         $list .= html_writer::tag('li', s(get_string('legend_minutes', 'local_zoomattendance', $a)));
+        $list .= html_writer::tag('li', s(get_string('legend_bars', 'local_zoomattendance', $a)));
         $list .= html_writer::tag('li', s(get_string('legend_selflinked', 'local_zoomattendance')));
         return html_writer::tag('details', html_writer::tag('summary', get_string('legend', 'local_zoomattendance')) .
             html_writer::tag('ul', $list, ['class' => 'list-unstyled mt-2 mb-0']), ['class' => 'mb-3']);
@@ -617,7 +692,7 @@ class renderer extends \plugin_renderer_base {
                 self::time($row->firstjoin),
                 self::time($row->lastleave),
                 self::duration($row->attendedsecs),
-                self::percentage($row->percentage),
+                self::percentage($row->percentage) . ($withstatus ? $this->status_bar($row->status, $row->percentage) : ''),
             ]);
             if ($withstatus) {
                 $cells[] = $this->badge($row->status);
