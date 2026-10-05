@@ -25,6 +25,7 @@
 require(__DIR__ . '/../../config.php');
 
 use local_zoomattendance\local\course_summary;
+use local_zoomattendance\local\headcount;
 use local_zoomattendance\output\renderer;
 
 $id = required_param('id', PARAM_INT);
@@ -70,6 +71,18 @@ if ($download !== '' && $summary && $summary->activities) {
             }
         }
         $record['overall'] = renderer::overall($summary->overall[$userid] ?? null);
+        $rows[] = $record;
+    }
+    // Then, per class, how many of the expected students were present, partial and absent.
+    $counts = headcount::from_summary($summary);
+    foreach (['expected', 'present', 'partial', 'absent'] as $key) {
+        $record = ['fullname' => get_string('students' . $key, 'local_zoomattendance')];
+        foreach ($summary->activities as $activity) {
+            foreach ($activity->columns as $occurrenceid => $occurrence) {
+                $record['o' . $occurrenceid] = $counts[$occurrenceid][$key] ?? 0;
+            }
+        }
+        $record['overall'] = '';
         $rows[] = $record;
     }
     \core\dataformat::download_data(clean_filename($course->shortname . '-zoomattendance'), $download, $columns, $rows);

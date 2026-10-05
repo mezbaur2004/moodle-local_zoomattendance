@@ -26,6 +26,7 @@ require(__DIR__ . '/../../config.php');
 
 use local_zoomattendance\form\teacher_filter;
 use local_zoomattendance\local\attendance;
+use local_zoomattendance\local\headcount;
 use local_zoomattendance\local\settings;
 use local_zoomattendance\local\teacher_access;
 use local_zoomattendance\local\teacher_attendance;
@@ -68,6 +69,14 @@ $tracking = settings::teacher_tracking();
 $summary = $tracking
     ? teacher_summary::build($course, $visible, $from, teacher_overview::day_end($to))
     : null;
+// Out of the expected students, how many attended each class: for those who see the student reports.
+$headcounts = null;
+if (
+    $summary && $summary->classes && !get_config('zoom', 'maskparticipantdata')
+        && has_capability('local/zoomattendance:viewreports', $context)
+) {
+    $headcounts = headcount::for_viewer($course);
+}
 
 if ($download !== '' && $summary && $summary->classes) {
     // One row per class and teacher, so the file sorts and filters well in a spreadsheet.
@@ -84,6 +93,11 @@ if ($download !== '' && $summary && $summary->classes) {
         'earlymins' => get_string('earlymins', 'local_zoomattendance'),
         'note' => get_string('note', 'local_zoomattendance'),
     ];
+    if ($headcounts !== null) {
+        foreach (['expected', 'present', 'partial', 'absent'] as $key) {
+            $columns['students' . $key] = get_string('students' . $key, 'local_zoomattendance');
+        }
+    }
     $rows = [];
     $timeformat = get_string('strftimedatetimeshort', 'langconfig');
     foreach ($summary->users as $userid => $user) {
@@ -98,7 +112,7 @@ if ($download !== '' && $summary && $summary->classes) {
                 $evaluated && isset($summary->selflinked[$userid][$class->occurrence->id])
                     ? [get_string('selflinked', 'local_zoomattendance')] : []
             ));
-            $rows[] = [
+            $record = [
                 'teacher' => fullname($user),
                 'role' => $summary->roles[$userid] ?? '',
                 'course' => format_string($course->fullname, true, ['context' => $context, 'escape' => false]),
@@ -113,6 +127,13 @@ if ($download !== '' && $summary && $summary->classes) {
                 'earlymins' => $evaluated && $row->lastleave !== null ? intdiv($row->earlysecs, MINSECS) : '',
                 'note' => implode('; ', $notes),
             ];
+            if ($headcounts !== null) {
+                $counts = $headcounts[$class->occurrence->id] ?? null;
+                foreach (['expected', 'present', 'partial', 'absent'] as $key) {
+                    $record['students' . $key] = $counts ? $counts[$key] : '';
+                }
+            }
+            $rows[] = $record;
         }
     }
     \core\dataformat::download_data(
@@ -142,7 +163,7 @@ if (!$tracking) {
         echo $output->notification(get_string($onlyown ? 'nomyclasses' : 'noteacherclasses', 'local_zoomattendance'), 'info');
     } else {
         echo html_writer::tag('p', get_string('teachersummary_help', 'local_zoomattendance'), ['class' => 'text-muted']);
-        echo $output->teacher_table($summary);
+        echo $output->teacher_table($summary, $headcounts);
         echo $output->download_dataformat_selector(
             get_string('downloadclasses', 'local_zoomattendance'),
             $url->out_omit_querystring(),
