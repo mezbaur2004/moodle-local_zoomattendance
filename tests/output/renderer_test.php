@@ -113,4 +113,25 @@ final class renderer_test extends \advanced_testcase {
         $this->assertSame('', $renderer->overall_meter(null, $defaults));
         $this->assertSame('', $renderer->overall_meter(new summary(), $defaults));
     }
+
+    public function test_headcount_shows_present_of_expected_with_a_split_bar(): void {
+        $this->resetAfterTest();
+        $renderer = $this->renderer();
+        $counts = ['expected' => 20, status::PRESENT => 15, status::PARTIAL => 3, status::ABSENT => 2];
+
+        $html = $renderer->headcount($counts);
+        $this->assertStringContainsString('15 of 20 present', $html);
+        $this->assertStringContainsString('3 partial · 2 absent', $html);
+        $this->assertStringContainsString('Out of 20 expected students: 15 present, 3 partial, 2 absent.', $html);
+        $this->assertStringContainsString('bg-success" style="width: 75%;"', $html);
+        $this->assertStringContainsString('bg-warning" style="width: 15%;"', $html);
+        $this->assertStringContainsString('bg-danger" style="width: 10%;"', $html);
+
+        // Everyone present: one green segment.
+        $all = $renderer->headcount(['expected' => 4, status::PRESENT => 4, status::PARTIAL => 0, status::ABSENT => 0]);
+        $this->assertStringNotContainsString('bg-danger', $all);
+        $this->assertStringContainsString('local-zoomattendance-headcount-large', $renderer->headcount($counts, true));
+        $this->assertSame('–', $renderer->headcount(null));
+        $this->assertSame('–', $renderer->headcount(\local_zoomattendance\local\headcount::empty()));
+    }
 }

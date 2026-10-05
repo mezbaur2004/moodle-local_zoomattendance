@@ -1140,6 +1140,22 @@ are left out; excluded, awaiting and reset classes are not counted in either fig
   a teacher who joins few classes but stays for them shows a high *When joined* and a low
   Attendance.
 
+## C15. 0.3.5 class headcount
+
+Out of the students expected at a class, how many were present, partial and absent, shown as
+"15 of 18 present", a bar split into the three colours, and "2 partial · 1 absent".
+
+* `headcount::from_summary()` counts the course summary's cells, so the headcount always agrees
+  with the course report. `headcount::for_viewer()` builds the summary per group the viewer may
+  see (all, or in separate groups without `moodle/site:accessallgroups` their own groups) and
+  merges the cells by student, so a student in two groups counts once.
+* Shown in a *Students* row under the course report, at the top of a class's own page, in a
+  *Students* column on the teacher attendance page when the viewer has `viewreports` and
+  participant data is not masked, as four rows at the end of the course download and four
+  columns in the teacher download, and in the dashboard block (block 0.4.0) for the latest
+  class of each course.
+* Only evaluated classes have a headcount; a class not held has no students to count.
+
 ## Decisions
 
 All open questions were resolved by adopting the proposed defaults.
@@ -1173,3 +1189,4 @@ All open questions were resolved by adopting the proposed defaults.
 | **D25** | Reset | A reset with `reset_zoom_all` marks the course's past occurrences *Zoom data reset* (status 3), never counted, so they do not become Not held (C8, C11). |
 | **D26** | Regular meeting time | Since 0.3.2, a held class of a fixed-time recurring meeting without a calendar event is measured against the meeting's regular time and length on that day, not the span the room was open. |
 | **D27** | When joined | Since 0.3.4, teachers also get attendance over only the classes they joined, beside Attendance (C14). |
+| **D28** | Class headcount | Since 0.3.5, every class shows how many of its expected students were present, partial and absent, wherever classes are listed (C15). |

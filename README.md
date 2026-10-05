@@ -67,6 +67,12 @@ Each occurrence cell has a slim bar in its status colour. Course overall has a b
 the Present threshold of the site defaults, green from Present, orange from Partial and red below;
 the colours are a visual cue, not a status.
 
+Under each class, a *Students* row shows how many of the expected students were present, for
+example "15 of 18 present", with a bar split green, orange and red and the partial and absent
+counts. The same headcount is on each class's own page, in a *Students* column on the teacher
+attendance page (for users who see the student reports), in both downloads and in the dashboard
+block. In separate groups, a teacher without access to all groups counts their own groups only.
+
 A participant is *partial* when they joined but are not present: they stayed below the
 present threshold (for example joined on time and left early) or joined after the late
 period.

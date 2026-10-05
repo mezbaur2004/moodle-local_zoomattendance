@@ -84,3 +84,29 @@
     top: -4px;
     height: 18px;
 }
+
+/* Class headcount: present of expected, a bar split green / orange / red, then partial and absent. */
+.local-zoomattendance-headcount-bar {
+    display: flex;
+    width: 6rem;
+    height: 6px;
+    margin: 3px 0;
+    overflow: hidden;
+    border-radius: 3px;
+    background-color: rgba(0, 0, 0, .08);
+}
+
+.local-zoomattendance-headcount-bar > div {
+    height: 100%;
+}
+
+.local-zoomattendance-headcount-large {
+    margin-bottom: 1rem;
+}
+
+.local-zoomattendance-headcount-large .local-zoomattendance-headcount-bar {
+    width: 100%;
+    max-width: 20rem;
+    height: 10px;
+    border-radius: 5px;
+}

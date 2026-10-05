@@ -28,6 +28,7 @@ use html_table;
 use html_writer;
 use local_zoomattendance\local\attendance;
 use local_zoomattendance\local\course_summary;
+use local_zoomattendance\local\headcount;
 use local_zoomattendance\local\status;
 use local_zoomattendance\local\summary;
 use local_zoomattendance\local\sync;
@@ -183,6 +184,49 @@ class renderer extends \plugin_renderer_base {
     }
 
     /**
+     * Out of the students expected at a class, how many were present, partial and absent: the
+     * present count, a bar split into the three colours, and the partial and absent counts.
+     *
+     * @param array|null $counts From headcount, with expected, present, partial and absent.
+     * @param bool $large The full sentence, for a class's own page.
+     * @return string '–' when no student was expected.
+     */
+    public function headcount(?array $counts, bool $large = false): string {
+        if (empty($counts['expected'])) {
+            return '–';
+        }
+        $a = (object) [
+            'expected' => $counts['expected'],
+            'present' => $counts[status::PRESENT],
+            'partial' => $counts[status::PARTIAL],
+            'absent' => $counts[status::ABSENT],
+        ];
+        $segments = '';
+        foreach ([status::PRESENT => 'success', status::PARTIAL => 'warning', status::ABSENT => 'danger'] as $state => $variant) {
+            if ($counts[$state]) {
+                $segments .= html_writer::div('', 'bg-' . $variant, [
+                    'style' => 'width: ' . self::bar_width(100 * $counts[$state] / $counts['expected']) . '%;',
+                ]);
+            }
+        }
+        $full = get_string('headcount_full', 'local_zoomattendance', $a);
+        $bar = html_writer::div($segments, 'local-zoomattendance-headcount-bar', ['aria-hidden' => 'true']);
+        if ($large) {
+            return html_writer::div(
+                html_writer::div(s($full)) . $bar,
+                'local-zoomattendance-headcount local-zoomattendance-headcount-large'
+            );
+        }
+        return html_writer::div(
+            html_writer::tag('strong', s(get_string('headcount_present', 'local_zoomattendance', $a)))
+                . $bar
+                . html_writer::div(s(get_string('headcount_rest', 'local_zoomattendance', $a)), 'small text-muted'),
+            'local-zoomattendance-headcount text-nowrap',
+            ['title' => $full]
+        );
+    }
+
+    /**
      * A percentage as a CSS width, kept within 0 and 100.
      *
      * @param float $pct
@@ -247,7 +291,22 @@ class renderer extends \plugin_renderer_base {
             $body .= html_writer::tag('tr', implode('', $cells));
         }
 
-        $table = html_writer::tag('table', html_writer::tag('thead', $head) . html_writer::tag('tbody', $body), [
+        // Out of the expected students, how many were present, partial and absent at each class.
+        $counts = headcount::from_summary($summary);
+        $foot = [html_writer::tag('th', get_string('students', 'local_zoomattendance'), [
+            'scope' => 'row',
+            'class' => 'local-zoomattendance-name',
+            'title' => get_string('headcount_help', 'local_zoomattendance'),
+        ])];
+        foreach ($summary->activities as $activity) {
+            foreach ($activity->columns as $occurrenceid => $occurrence) {
+                $foot[] = html_writer::tag('td', $this->headcount($counts[$occurrenceid] ?? null));
+            }
+        }
+        $foot[] = html_writer::tag('td', '');
+
+        $table = html_writer::tag('table', html_writer::tag('thead', $head) . html_writer::tag('tbody', $body)
+            . html_writer::tag('tfoot', html_writer::tag('tr', implode('', $foot))), [
             'class' => 'generaltable table-sm local-zoomattendance-course',
         ]);
         return html_writer::div($table, 'table-responsive local-zoomattendance-scroll');
@@ -258,13 +317,21 @@ class renderer extends \plugin_renderer_base {
      * teacher, with each teacher's attendance and counts at the bottom.
      *
      * @param teacher_summary $summary
+     * @param array[]|null $headcounts Students per class, from headcount::for_viewer(), or null to
+     *     leave the Students column out.
      * @return string
      */
-    public function teacher_table(teacher_summary $summary): string {
+    public function teacher_table(teacher_summary $summary, ?array $headcounts = null): string {
         $head = [
             html_writer::tag('th', get_string('date'), ['scope' => 'col']),
             html_writer::tag('th', get_string('class', 'local_zoomattendance'), ['scope' => 'col']),
         ];
+        if ($headcounts !== null) {
+            $head[] = html_writer::tag('th', get_string('students', 'local_zoomattendance'), [
+                'scope' => 'col',
+                'title' => get_string('headcount_help', 'local_zoomattendance'),
+            ]);
+        }
         foreach ($summary->users as $userid => $user) {
             $role = $summary->roles[$userid] ?? '';
             $rolelabel = $role === '' ? '' : html_writer::div(s($role), 'small text-muted fw-normal font-weight-normal');
@@ -286,6 +353,9 @@ class renderer extends \plugin_renderer_base {
                 html_writer::tag('th', s(self::window($occurrence)), ['scope' => 'row']),
                 html_writer::tag('td', $label),
             ];
+            if ($headcounts !== null) {
+                $cells[] = html_writer::tag('td', $this->headcount($headcounts[$occurrence->id] ?? null));
+            }
             foreach ($summary->users as $userid => $user) {
                 $row = $summary->cells[$userid][$occurrence->id] ?? null;
                 $cells[] = html_writer::tag('td', $row
@@ -295,18 +365,19 @@ class renderer extends \plugin_renderer_base {
             $body .= html_writer::tag('tr', implode('', $cells));
         }
 
+        $labelcols = $headcounts === null ? 2 : 3;
         $overall = [html_writer::tag('th', get_string('teacheroverall', 'local_zoomattendance'), [
             'scope' => 'row',
-            'colspan' => 2,
+            'colspan' => $labelcols,
         ])];
         $joined = [html_writer::tag('th', get_string('whenjoined', 'local_zoomattendance'), [
             'scope' => 'row',
-            'colspan' => 2,
+            'colspan' => $labelcols,
             'title' => get_string('whenjoined_help', 'local_zoomattendance'),
         ])];
         $counts = [html_writer::tag('th', get_string('classescounted', 'local_zoomattendance'), [
             'scope' => 'row',
-            'colspan' => 2,
+            'colspan' => $labelcols,
         ])];
         $thresholds = \local_zoomattendance\local\settings::teacher();
         foreach ($summary->users as $userid => $user) {
@@ -612,6 +683,9 @@ class renderer extends \plugin_renderer_base {
      */
     public function occurrence_detail(attendance $attendance, \stdClass $evaluation, bool $canlink = false): string {
         $output = $this->heading(get_string('expectedusers', 'local_zoomattendance'), 4);
+        if ($evaluation->state === attendance::STATE_EVALUATED) {
+            $output .= $this->headcount(['expected' => count($evaluation->expected)] + $evaluation->counts, true);
+        }
         $output .= $this->user_table($attendance, $evaluation->expected, true);
         if ($evaluation->notexpected) {
             $output .= $this->heading(get_string('notexpectedusers', 'local_zoomattendance'), 4);
