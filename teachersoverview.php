@@ -153,7 +153,9 @@ $range = (object) [
 echo html_writer::tag('p', get_string('showingrange', 'local_zoomattendance', $range), ['class' => 'text-muted']);
 echo $output->teacher_legend(settings::teacher());
 if (!$rows) {
-    echo $output->notification(get_string('noteacherdatarange', 'local_zoomattendance', $range), 'info');
+    // The own view has no category filter.
+    $empty = $mine ? 'noteacherdatarangemine' : 'noteacherdatarange';
+    echo $output->notification(get_string($empty, 'local_zoomattendance', $range), 'info');
 } else {
     echo html_writer::tag('p', get_string('teachersoverview_help', 'local_zoomattendance'), ['class' => 'text-muted']);
     $table = new html_table();
