@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Version information for local_zoomattendance.
+ * Cache definitions for local_zoomattendance.
  *
  * @package    local_zoomattendance
  * @copyright  2026 Mezbaur Are Rafi
@@ -24,11 +24,21 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->component = 'local_zoomattendance';
-$plugin->version = 2026100602;
-$plugin->requires = 2022112800; // Moodle 4.1.
-$plugin->maturity = MATURITY_BETA;
-$plugin->release = '0.4.0';
-$plugin->dependencies = [
-    'mod_zoom' => 2026082400, // Mod_zoom v5.5.1.
+$definitions = [
+    // The current data version: changes whenever attendance, enrolments, roles, groups or
+    // settings change, so cached summaries built from older data are never used.
+    'version' => [
+        'mode' => cache_store::MODE_APPLICATION,
+        'simplekeys' => true,
+        'simpledata' => true,
+        'staticacceleration' => true,
+        'staticaccelerationsize' => 1,
+    ],
+    // Course and teacher summaries, keyed by what they were built for and the data version.
+    'summaries' => [
+        'mode' => cache_store::MODE_APPLICATION,
+        'simplekeys' => true,
+        'simpledata' => false,
+        'ttl' => 6 * HOURSECS,
+    ],
 ];

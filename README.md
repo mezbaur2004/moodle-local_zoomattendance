@@ -69,9 +69,17 @@ the colours are a visual cue, not a status.
 
 Under each class, a *Students* row shows how many of the expected students were present
 overall, counting present and partial together, for example "17 of 18 present", with a bar split
-green, orange and red and the breakdown "15 present + 2 partial · 1 absent". The same headcount is on each class's own page, in a *Students* column on the teacher
-attendance page (for users who see the student reports), in both downloads and in the dashboard
-block. In separate groups, a teacher without access to all groups counts their own groups only.
+green, orange and red and the breakdown "15 present + 2 partial · 1 absent". The same headcount
+is on each class's own page, in a *Students* column on the teacher attendance page (for users who
+see the student reports), in both downloads and in the dashboard block. In separate groups, a
+teacher without access to all groups counts their own groups only. Large courses show 50 students
+per page; the download has everyone.
+
+**Past classes keep who was expected.** Until a class is over, the expected students and teachers
+come from the current enrolments. Once it ended longer ago than the *Not held after* delay (24
+hours by default), the sync freezes that list, so unenrolling or suspending a user, or changing
+their role, no longer rewrites past attendance or headcounts. When upgrading, the first sync
+freezes every past class from the enrolments at that time.
 
 A participant is *partial* when they joined but are not present: they stayed below the
 present threshold (for example joined on time and left early) or joined after the late
@@ -79,7 +87,17 @@ period.
 
 The hourly task `\local_zoomattendance\task\sync` snapshots classes (mod_zoom may
 later delete past calendar events) and recomputes only classes whose source data
-changed. Teachers can also press *Recompute now*.
+changed. It only visits activities with new Zoom data, schedule or settings changes, and runs a
+full pass once a day and after a settings change. Teachers can also press *Recompute now*.
+Reports are cached and rebuilt as soon as attendance, enrolments, roles, groups or settings
+change.
+
+*Keep classes for (days)*, under *Data retention*, deletes classes older than that from Zoom
+attendance (0, the default, keeps them all). The Zoom plugin's own data is not touched.
+
+*Site administration > Reports > System status* shows two checks: that the attendance sync has run
+in the last three hours, and that the Zoom plugin's *Get meeting reports* task is enabled and has
+fetched reports recently (Zoom keeps them for about 30 days).
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design, including the
 verified behaviour of mod_zoom it relies on.
@@ -96,6 +114,7 @@ verified behaviour of mod_zoom it relies on.
 | `local/zoomattendance:viewteacherreports` | manager | Every teacher's attendance |
 | `local/zoomattendance:viewownteacher` | teacher, editing teacher | Own teacher attendance |
 | `local/zoomattendance:viewnoneditingteachers` | editing teacher | Non-editing teachers' attendance |
+| `local/zoomattendance:excludetracked` | manager | Excluding classes and choosing responsible teachers while teacher attendance is tracked |
 
 ## Correcting attendance
 
@@ -114,11 +133,16 @@ automatic matching cannot:
   percentages are measured against it. *Revert* returns to the automatic window. Scheduled
   windows come from the Zoom activity and cannot be edited here.
 
-Both changes recompute attendance immediately. If a sync is running at that moment, they
-apply on the next hourly sync.
+A window change recomputes attendance immediately. An identity link applies to every Zoom
+activity of the course, so it is recomputed in the background within a few minutes.
 
-Each change, and excluding a class, records who made it and is written to the Moodle
-logs, because it can also change teacher attendance.
+- **Excluding a class.** *Exclude* in the class list asks for a reason, which is shown wherever
+  the class is listed. Excluded classes count for nobody. While teacher attendance is tracked,
+  only users with *Exclude classes while teacher attendance is tracked* (managers by default)
+  can exclude classes, so teachers cannot exclude classes they missed.
+
+Each change records who made it and is written to the Moodle logs, because it can also change
+teacher attendance.
 
 ## Teacher attendance
 
@@ -173,10 +197,30 @@ own figures. Teachers they may not see are hidden from them in the existing repo
 This is staff monitoring: inform teachers, and check local employment and data-protection
 rules, before using the figures for evaluation.
 
+**Responsible teachers.** By default every teacher of the course is expected at every class. In
+an activity's *Zoom attendance settings*, *Responsible teachers* limits teacher attendance to the
+teachers chosen; classes already over keep the teachers expected at them. While teacher
+attendance is tracked, choosing them takes the same right as excluding classes.
+
+## Backup, restore and course copies
+
+Per-activity settings always go with a Zoom activity. With user data, its past classes go too,
+with their figures and the users expected at them, plus responsible teachers and the course's
+identity links. The Zoom plugin does not back up its meeting reports, so restored classes keep
+the figures from the backup. A copy without user data starts with no attendance; its past
+classes are never marked *Not held* for teachers, because nothing shows whether they were held.
+
+## Moodle app
+
+In the Moodle app, courses with Zoom attendance get a *Zoom attendance* tab: a student's own
+course overall and classes, and for teachers how many students attended each class. The site
+needs mobile services enabled.
+
 ## Development
 
-PHPUnit tests live in `tests/`. They create mod_zoom data directly, so no Zoom account is
-needed. CI runs `moodle-plugin-ci` against Moodle 4.1, 4.5 and 5.0.
+PHPUnit tests live in `tests/`, Behat features in `tests/behat/`. They create mod_zoom data
+directly, so no Zoom account is needed. CI runs `moodle-plugin-ci` against Moodle 4.1 (PHP 7.4
+and 8.0), 4.5 and 5.0. Changes are listed in [CHANGES.md](CHANGES.md).
 
 ## License
 

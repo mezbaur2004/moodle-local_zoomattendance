@@ -52,8 +52,8 @@ $PAGE->set_pagelayout('incourse');
 
 if ($action === 'unlink') {
     require_sesskey();
-    $done = manual::unlink_identity($course->id, required_param('link', PARAM_INT));
-    redirect($url, get_string($done ? 'unlinked' : 'recomputebusy', 'local_zoomattendance'));
+    manual::unlink_identity($course->id, required_param('link', PARAM_INT));
+    redirect($url, get_string('unlinked', 'local_zoomattendance'));
 }
 
 $form = null;
@@ -75,19 +75,34 @@ if ($key !== '') {
         throw new moodle_exception('invalididentity', 'local_zoomattendance');
     }
 
+    // Users who can be expected, as students or teachers, with the identity fields the viewer may see.
     $users = [];
-    $fields = \core_user\fields::for_name()->get_sql('u', false, '', '', false)->selects;
-    foreach (get_enrolled_users($coursecontext, '', 0, 'u.id, u.email, ' . $fields, 'u.lastname, u.firstname') as $user) {
-        $users[$user->id] = fullname($user) . ' (' . $user->email . ')';
+    // Standard identity fields only: custom profile fields would need joins get_enrolled_users() cannot take.
+    $identity = array_values(array_filter(\core_user\fields::get_identity_fields($coursecontext, false), function ($field) {
+        return strpos($field, 'profile_field_') !== 0;
+    }));
+    $fields = \core_user\fields::for_name()->get_sql('u', false, '', '', true)->selects;
+    foreach ($identity as $field) {
+        $fields .= ', u.' . $field;
     }
+    foreach (['local/zoomattendance:betracked', 'local/zoomattendance:betrackedteacher'] as $capability) {
+        $enrolled = get_enrolled_users($coursecontext, $capability, 0, 'u.id' . $fields, 'u.lastname, u.firstname');
+        foreach ($enrolled as $user) {
+            $extra = array_filter(array_map(function ($field) use ($user) {
+                return (string) ($user->$field ?? '');
+            }, $identity));
+            $users[$user->id] = fullname($user) . ($extra ? ' (' . implode(', ', $extra) . ')' : '');
+        }
+    }
+    core_collator::asort($users);
 
     $form = new link_identity(null, ['users' => $users, 'zoomname' => $zoomname]);
     $form->set_data(['id' => $cm->id, 'key' => $key, 'occurrence' => $occurrenceid]);
     if ($form->is_cancelled()) {
         redirect($returnurl);
     } else if ($userid = $form->get_userid()) {
-        $done = manual::link_identity($course->id, $key, $userid, $zoomname);
-        redirect($returnurl, get_string($done ? 'linked' : 'recomputebusy', 'local_zoomattendance'));
+        manual::link_identity($course->id, $key, $userid, $zoomname);
+        redirect($returnurl, get_string('linked', 'local_zoomattendance'));
     }
 }
 
@@ -106,6 +121,8 @@ if (!$links) {
 } else {
     $users = user_get_users_by_id(array_unique(array_column($links, 'userid')));
     $table = new html_table();
+    $table->caption = get_string('courselinks', 'local_zoomattendance');
+    $table->captionhide = true;
     $table->head = [
         get_string('zoomname', 'local_zoomattendance'),
         get_string('fullnameuser'),
@@ -115,7 +132,7 @@ if (!$links) {
     foreach ($links as $link) {
         $user = $users[$link->userid] ?? null;
         $table->data[] = [
-            format_string((string) $link->displayname, true, ['context' => $coursecontext]),
+            s((string) $link->displayname),
             $user ? fullname($user) : '',
             userdate($link->timecreated, get_string('strftimedatetimeshort', 'langconfig')),
             html_writer::link(

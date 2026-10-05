@@ -247,9 +247,11 @@ class renderer extends \plugin_renderer_base {
      * the course overall percentage.
      *
      * @param course_summary $summary
+     * @param int[]|null $userids The rows to show (a page of them), or null for every user. The
+     *     Students row always counts every user.
      * @return string
      */
-    public function course_table(course_summary $summary): string {
+    public function course_table(course_summary $summary, ?array $userids = null): string {
         $courseid = null;
         $top = [html_writer::tag('th', get_string('fullnameuser'), ['rowspan' => 2, 'class' => 'local-zoomattendance-name'])];
         $dates = [];
@@ -272,7 +274,8 @@ class renderer extends \plugin_renderer_base {
         // Course overall spans activities, so it is marked against the site default thresholds.
         $sitedefaults = \local_zoomattendance\local\settings::site_defaults();
         $body = '';
-        foreach ($summary->users as $userid => $user) {
+        $users = $userids === null ? $summary->users : array_intersect_key($summary->users, array_flip($userids));
+        foreach ($users as $userid => $user) {
             $cells = [html_writer::tag('th', html_writer::link(new moodle_url(
                 '/local/zoomattendance/user.php',
                 ['course' => $courseid, 'user' => $userid]
@@ -301,7 +304,9 @@ class renderer extends \plugin_renderer_base {
         }
         $foot[] = html_writer::tag('td', '');
 
-        $table = html_writer::tag('table', html_writer::tag('thead', $head) . html_writer::tag('tbody', $body)
+        $caption = get_string('coursetablecaption', 'local_zoomattendance');
+        $caption = html_writer::tag('caption', $caption, ['class' => 'accesshide']);
+        $table = html_writer::tag('table', $caption . html_writer::tag('thead', $head) . html_writer::tag('tbody', $body)
             . html_writer::tag('tfoot', html_writer::tag('tr', implode('', $foot))), [
             'class' => 'generaltable table-sm local-zoomattendance-course',
         ]);
@@ -388,7 +393,9 @@ class renderer extends \plugin_renderer_base {
         $foot = html_writer::tag('tr', implode('', $overall)) . html_writer::tag('tr', implode('', $joined))
             . html_writer::tag('tr', implode('', $counts));
 
-        $table = html_writer::tag('table', html_writer::tag('thead', html_writer::tag('tr', implode('', $head))) .
+        $caption = get_string('teachertablecaption', 'local_zoomattendance');
+        $caption = html_writer::tag('caption', $caption, ['class' => 'accesshide']);
+        $table = html_writer::tag('table', $caption . html_writer::tag('thead', html_writer::tag('tr', implode('', $head))) .
             html_writer::tag('tbody', $body) . html_writer::tag('tfoot', $foot), [
             'class' => 'generaltable table-sm local-zoomattendance-teachers',
         ]);
@@ -446,8 +453,13 @@ class renderer extends \plugin_renderer_base {
                 return get_string('note_reset', 'local_zoomattendance');
             case attendance::STATE_EXCLUDED:
                 $by = $summary->excludedby[$occurrenceid] ?? null;
-                return $by ? get_string('excludedby', 'local_zoomattendance', fullname($by))
+                $note = $by ? get_string('excludedby', 'local_zoomattendance', fullname($by))
                     : get_string('status_excluded', 'local_zoomattendance');
+                $reason = $summary->excludereasons[$occurrenceid] ?? '';
+                return $reason === '' ? $note : get_string('excludedreason', 'local_zoomattendance', (object) [
+                    'note' => $note,
+                    'reason' => $reason,
+                ]);
         }
         return '';
     }
@@ -588,6 +600,7 @@ class renderer extends \plugin_renderer_base {
      * @param moodle_url $baseurl
      * @param bool $canmanage
      * @param bool $masked Participant data is masked: no links to details.
+     * @param bool $canexclude Whether the viewer may exclude classes and include them again.
      * @return string
      */
     public function occurrence_list(
@@ -595,9 +608,12 @@ class renderer extends \plugin_renderer_base {
         array $evaluations,
         moodle_url $baseurl,
         bool $canmanage,
-        bool $masked
+        bool $masked,
+        bool $canexclude = false
     ): string {
         $table = new html_table();
+        $table->caption = get_string('classlist', 'local_zoomattendance');
+        $table->captionhide = true;
         $table->attributes['class'] = 'generaltable local-zoomattendance-occurrences';
         $table->head = [
             get_string('occurrence', 'local_zoomattendance'),
@@ -624,7 +640,8 @@ class renderer extends \plugin_renderer_base {
             $row = [
                 $label,
                 get_string('source_' . $occurrence->source, 'local_zoomattendance'),
-                $this->badge($evaluation->state),
+                $this->badge($evaluation->state) . (empty($occurrence->excludereason) ? ''
+                    : html_writer::div(s($occurrence->excludereason), 'small text-muted')),
                 $attendance->session_count($occurrence),
                 count($evaluation->expected),
                 $evaluated ? $evaluation->counts[status::PRESENT] : '',
@@ -634,7 +651,7 @@ class renderer extends \plugin_renderer_base {
                 count($evaluation->unmatched),
             ];
             if ($canmanage) {
-                $actions = [$this->exclude_toggle($occurrence, $baseurl)];
+                $actions = [$canexclude ? $this->exclude_toggle($occurrence, $baseurl, (int) $attendance->cm->id) : ''];
                 if (\local_zoomattendance\local\manual::can_set_window($occurrence)) {
                     $actions[] = html_writer::link(
                         new moodle_url('/local/zoomattendance/window.php', [
@@ -652,21 +669,25 @@ class renderer extends \plugin_renderer_base {
     }
 
     /**
-     * Exclude / include action link.
+     * Exclude / include action link. Excluding opens a page asking for the reason.
      *
      * @param \stdClass $occurrence
      * @param moodle_url $baseurl
+     * @param int $cmid
      * @return string
      */
-    protected function exclude_toggle(\stdClass $occurrence, moodle_url $baseurl): string {
+    protected function exclude_toggle(\stdClass $occurrence, moodle_url $baseurl, int $cmid): string {
         $status = (int) $occurrence->status;
         // Cancelled occurrences, and those from before a Zoom data reset, cannot be excluded.
         if (in_array($status, [sync::STATUS_CANCELLED, sync::STATUS_RESET], true)) {
             return '';
         }
-        $action = $status === sync::STATUS_EXCLUDED ? 'include' : 'exclude';
-        $url = new moodle_url($baseurl, ['action' => $action, 'target' => $occurrence->id, 'sesskey' => sesskey()]);
-        return html_writer::link($url, get_string($action, 'local_zoomattendance'));
+        if ($status === sync::STATUS_EXCLUDED) {
+            $url = new moodle_url($baseurl, ['action' => 'include', 'target' => $occurrence->id, 'sesskey' => sesskey()]);
+            return html_writer::link($url, get_string('include', 'local_zoomattendance'));
+        }
+        $url = new moodle_url('/local/zoomattendance/exclude.php', ['id' => $cmid, 'occurrence' => $occurrence->id]);
+        return html_writer::link($url, get_string('exclude', 'local_zoomattendance'));
     }
 
     /**
@@ -696,6 +717,8 @@ class renderer extends \plugin_renderer_base {
             $output .= $this->heading(get_string('unmatchedparticipants', 'local_zoomattendance'), 4);
             $output .= html_writer::tag('p', get_string('unmatched_help', 'local_zoomattendance'), ['class' => 'text-muted']);
             $table = new html_table();
+            $table->caption = get_string('unmatchedparticipants', 'local_zoomattendance');
+            $table->captionhide = true;
             $table->head = [
                 get_string('zoomname', 'local_zoomattendance'),
                 get_string('firstjoin', 'local_zoomattendance'),
@@ -708,7 +731,7 @@ class renderer extends \plugin_renderer_base {
             }
             foreach ($evaluation->unmatched as $row) {
                 $cells = [
-                    format_string($row->displayname, true, ['context' => $attendance->context]),
+                    s($row->displayname),
                     self::time($row->firstjoin),
                     self::time($row->lastleave),
                     self::duration($row->attendedsecs),
@@ -745,6 +768,8 @@ class renderer extends \plugin_renderer_base {
         }
         $identityfields = $attendance->identity_fields();
         $table = new html_table();
+        $table->caption = get_string('participantlist', 'local_zoomattendance');
+        $table->captionhide = true;
         $table->head = [get_string('fullnameuser')];
         foreach ($identityfields as $field) {
             $table->head[] = \core_user\fields::get_display_name($field);

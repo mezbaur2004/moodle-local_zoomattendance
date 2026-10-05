@@ -63,19 +63,35 @@ class sync {
     /** @var string Key of the only occurrence of a non-recurring meeting. */
     public const KEY_SINGLE = 'single';
 
+    /** @var string Config name holding the incremental sync state. */
+    protected const STATE_CONFIG = 'syncstate';
+
     /**
      * Sync every enabled instance, then remove data whose activity no longer exists.
      *
      * While teacher attendance is tracked every instance is synced, whatever its per-activity
      * switch says, so a teacher cannot hide a missed class by switching tracking off.
      *
-     * @param int|null $courseid Limit to one course.
+     * Without a course, only the instances whose mod_zoom data, schedule or settings changed since
+     * the last sync are synced, plus those with classes to recompute or freeze. A full pass runs
+     * once a day, after a settings change, and on the first sync.
+     *
+     * @param int|null $courseid Limit to one course (always a full pass of it).
+     * @param bool $full Sync every instance.
      * @return int Number of instances synced.
      */
-    public static function sync_all(?int $courseid = null): int {
+    public static function sync_all(?int $courseid = null, bool $full = false): int {
         $count = 0;
         $all = settings::teacher_tracking();
+        $only = null;
+        $marks = null;
+        if ($courseid === null) {
+            [$full, $marks, $only] = self::changed_instances($full);
+        }
         foreach (zoom_source::get_instances($courseid) as $instance) {
+            if ($only !== null && !isset($only[(int) $instance->id])) {
+                continue;
+            }
             if (!$all && !settings::from_override(zoom_source::override_from_instance($instance))->enabled) {
                 continue;
             }
@@ -88,7 +104,110 @@ class sync {
             }
         }
         self::delete_orphans();
+        if ($courseid === null) {
+            if ($full && self::purge_expired()) {
+                data_version::bump();
+            }
+            self::save_state($marks, $full);
+        }
         return $count;
+    }
+
+    /**
+     * Which instances an incremental sync needs.
+     *
+     * New participant and session rows are found from their ids, which only grow; schedule,
+     * activity and settings changes from their modification times. Deleted mod_zoom rows are
+     * only noticed by the daily full pass.
+     *
+     * @param bool $full Whether a full pass was asked for.
+     * @return array [bool full, \stdClass marks to save, bool[]|null zoom id => true, null for all]
+     */
+    protected static function changed_instances(bool $full): array {
+        global $DB;
+        $now = time();
+        $marks = (object) [
+            'pid' => (int) $DB->get_field_sql('SELECT MAX(id) FROM {zoom_meeting_participants}'),
+            'did' => (int) $DB->get_field_sql('SELECT MAX(id) FROM {zoom_meeting_details}'),
+            'time' => $now,
+            'hash' => self::settings_hash(),
+        ];
+        $state = json_decode((string) get_config('local_zoomattendance', self::STATE_CONFIG));
+        $stale = !is_object($state) || ($state->hash ?? '') !== $marks->hash || $now - (int) ($state->full ?? 0) >= DAYSECS;
+        $full = $full || $stale;
+        $marks->full = $full ? $now : (int) $state->full;
+        if ($full) {
+            return [true, $marks, null];
+        }
+
+        // A few minutes of overlap, for rows written while the last sync ran.
+        $since = (int) $state->time - 5 * MINSECS;
+        $queries = [
+            ["SELECT DISTINCT d.zoomid
+                FROM {zoom_meeting_participants} p
+                JOIN {zoom_meeting_details} d ON d.id = p.detailsid
+               WHERE p.id > :pid", ['pid' => (int) $state->pid]],
+            ["SELECT DISTINCT zoomid FROM {zoom_meeting_details} WHERE id > :did", ['did' => (int) $state->did]],
+            ["SELECT DISTINCT instance FROM {event} WHERE modulename = :modname AND timemodified > :since",
+                ['modname' => 'zoom', 'since' => $since]],
+            ["SELECT id FROM {zoom} WHERE timemodified > :since", ['since' => $since]],
+            ["SELECT DISTINCT cm.instance
+                FROM {local_zoomattendance_setting} s
+                JOIN {course_modules} cm ON cm.id = s.cmid
+               WHERE s.timemodified > :since", ['since' => $since]],
+            ["SELECT DISTINCT cm.instance
+                FROM {local_zoomattendance_teacher} t
+                JOIN {course_modules} cm ON cm.id = t.cmid
+               WHERE t.timecreated > :since", ['since' => $since]],
+            // Classes a teacher change left for recompute, and classes now due to be frozen.
+            ["SELECT DISTINCT zoomid FROM {local_zoomattendance_occ} WHERE timecomputed = 0", []],
+            ["SELECT DISTINCT zoomid
+                FROM {local_zoomattendance_occ}
+               WHERE rosterfrozen = 0 AND restored = 0 AND status <> :cancelled AND timeend <= :cutoff",
+                ['cancelled' => self::STATUS_CANCELLED, 'cutoff' => $now - settings::teacher_notheld_delay()]],
+            // Instances never synced.
+            ["SELECT z.id
+                FROM {zoom} z
+               WHERE NOT EXISTS (SELECT 1 FROM {local_zoomattendance_occ} o WHERE o.zoomid = z.id)
+                 AND NOT EXISTS (SELECT 1 FROM {local_zoomattendance_session} s WHERE s.zoomid = z.id)", []],
+        ];
+        $only = [];
+        foreach ($queries as [$sql, $params]) {
+            foreach ($DB->get_fieldset_sql($sql, $params) as $zoomid) {
+                $only[(int) $zoomid] = true;
+            }
+        }
+        return [false, $marks, $only];
+    }
+
+    /**
+     * Remember how far the sync got.
+     *
+     * @param \stdClass $marks From changed_instances().
+     * @param bool $full Whether this was a full pass.
+     */
+    protected static function save_state(\stdClass $marks, bool $full): void {
+        set_config(self::STATE_CONFIG, json_encode($marks), 'local_zoomattendance');
+        set_config('lastsync', $marks->time, 'local_zoomattendance');
+        if ($full) {
+            set_config('lastfullsync', $marks->time, 'local_zoomattendance');
+        }
+    }
+
+    /**
+     * The settings that change how sessions map to classes: a change asks for a full pass.
+     *
+     * @return string
+     */
+    protected static function settings_hash(): string {
+        $config = get_config('local_zoomattendance');
+        return sha1(json_encode([
+            settings::margins(),
+            settings::teacher_tracking(),
+            (int) ($config->defaultenabled ?? 0),
+            (int) ($config->retentiondays ?? 0),
+            (int) ($config->teachernotheldhours ?? 24),
+        ]));
     }
 
     /**
@@ -126,6 +245,8 @@ class sync {
             self::do_sync($instance, $recomputeall);
         } finally {
             $lock->release();
+            // Cached summaries may show the old figures.
+            data_version::bump();
         }
         return true;
     }
@@ -143,13 +264,22 @@ class sync {
 
         $dirty = self::snapshot_schedule($instance);
 
-        $occurrences = $DB->get_records('local_zoomattendance_occ', ['zoomid' => $zoomid]);
+        // Restored occurrences keep the results they came with: their Zoom sessions are not in the backup.
+        $occurrences = array_filter($DB->get_records('local_zoomattendance_occ', ['zoomid' => $zoomid]), function ($o) {
+            return !(int) $o->restored;
+        });
         // Teacher-set and regular-time windows are fixed like scheduled ones: sessions map to them first.
         $fixed = [self::SOURCE_SCHEDULE, self::SOURCE_MANUAL, self::SOURCE_PATTERN];
         $scheduled = array_filter($occurrences, function ($o) use ($fixed) {
             return in_array($o->source, $fixed, true);
         });
         $sessions = zoom_source::get_sessions($zoomid);
+        if ($cutoff = settings::retention_cutoff()) {
+            // Classes older than the retention period are no longer kept.
+            $sessions = array_filter($sessions, function ($session) use ($cutoff) {
+                return (int) $session->end_time >= $cutoff;
+            });
+        }
 
         // Map sessions: fixed occurrences first, then the meeting's regular time for held classes
         // whose calendar event mod_zoom dropped, and clusters of the rest become inferred ones.
@@ -238,6 +368,7 @@ class sync {
             }
         }
         foreach ($inferredbykey as $occurrence) {
+            roster::delete_for_occurrences([$occurrence->id]);
             $DB->delete_records('local_zoomattendance_result', ['occurrenceid' => $occurrence->id]);
             $DB->delete_records('local_zoomattendance_occ', ['id' => $occurrence->id]);
             unset($dirty[$occurrence->id]);
@@ -251,11 +382,17 @@ class sync {
         }
         $idmap = self::get_idmap((int) $instance->course);
         foreach ($occurrences as $occurrence) {
+            if ((int) $occurrence->restored) {
+                continue;
+            }
             // A zero timecomputed marks an occurrence a teacher change left for recompute.
             if ($recomputeall || isset($dirty[$occurrence->id]) || (int) $occurrence->timecomputed === 0) {
                 self::recompute_occurrence($occurrence, $bydetails[$occurrence->id] ?? [], $idmap);
             }
         }
+
+        // Classes that are over keep the users expected at them.
+        roster::freeze_due($instance, $now);
     }
 
     /**
@@ -272,7 +409,23 @@ class sync {
         $now = time();
         $zoomid = (int) $instance->id;
         $windows = self::scheduled_windows($instance);
-        $existing = $DB->get_records('local_zoomattendance_occ', ['zoomid' => $zoomid, 'source' => self::SOURCE_SCHEDULE]);
+        if ($cutoff = settings::retention_cutoff()) {
+            $windows = array_filter($windows, function ($window) use ($cutoff) {
+                return $window[1] >= $cutoff;
+            });
+        }
+        $existing = $DB->get_records(
+            'local_zoomattendance_occ',
+            ['zoomid' => $zoomid, 'source' => self::SOURCE_SCHEDULE, 'restored' => 0]
+        );
+        // A class restored from a backup stands for its scheduled slot.
+        $restored = $DB->get_fieldset_select(
+            'local_zoomattendance_occ',
+            'occurrencekey',
+            'zoomid = :zoomid AND restored > 0',
+            ['zoomid' => $zoomid]
+        );
+        $windows = array_diff_key($windows, array_flip($restored));
         $dirty = [];
 
         foreach ($existing as $occurrence) {
@@ -682,12 +835,44 @@ class sync {
         }
         [$insql, $params] = $DB->get_in_or_equal($zoomids, SQL_PARAMS_NAMED);
         $DB->delete_records_select(
+            'local_zoomattendance_roster',
+            "occurrenceid IN (SELECT id FROM {local_zoomattendance_occ} WHERE zoomid $insql)",
+            $params
+        );
+        $DB->delete_records_select(
             'local_zoomattendance_result',
             "occurrenceid IN (SELECT id FROM {local_zoomattendance_occ} WHERE zoomid $insql)",
             $params
         );
         $DB->delete_records_select('local_zoomattendance_session', "zoomid $insql", $params);
         $DB->delete_records_select('local_zoomattendance_occ', "zoomid $insql", $params);
+    }
+
+    /**
+     * Delete the classes that ended before the retention period, with their results and frozen
+     * lists. The sync then leaves their Zoom sessions out, so they are not created again.
+     *
+     * @return int Number of classes deleted.
+     */
+    public static function purge_expired(): int {
+        global $DB;
+        $cutoff = settings::retention_cutoff();
+        if (!$cutoff) {
+            return 0;
+        }
+        $ids = $DB->get_fieldset_select('local_zoomattendance_occ', 'id', 'timeend < :cutoff', ['cutoff' => $cutoff]);
+        foreach (array_chunk($ids, 500) as $chunk) {
+            roster::delete_for_occurrences($chunk);
+            $DB->delete_records_list('local_zoomattendance_result', 'occurrenceid', $chunk);
+            $DB->set_field_select(
+                'local_zoomattendance_session',
+                'occurrenceid',
+                null,
+                'occurrenceid IN (' . implode(',', array_map('intval', $chunk)) . ')'
+            );
+            $DB->delete_records_list('local_zoomattendance_occ', 'id', $chunk);
+        }
+        return count($ids);
     }
 
     /**
@@ -707,6 +892,10 @@ class sync {
         self::delete_for_zoomids($zoomids);
         $DB->delete_records_select(
             'local_zoomattendance_setting',
+            'cmid NOT IN (SELECT id FROM {course_modules})'
+        );
+        $DB->delete_records_select(
+            'local_zoomattendance_teacher',
             'cmid NOT IN (SELECT id FROM {course_modules})'
         );
         $DB->delete_records_select(

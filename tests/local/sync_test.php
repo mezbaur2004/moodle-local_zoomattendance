@@ -391,4 +391,60 @@ final class sync_test extends \advanced_testcase {
         sync::delete_orphans();
         $this->assertSame(0, $DB->count_records('local_zoomattendance_occ'));
     }
+
+    public function test_hourly_sync_only_visits_changed_activities(): void {
+        global $DB;
+        $student = $this->getDataGenerator()->create_and_enrol($this->course, 'student');
+        $sessions = [];
+        $cms = [];
+        foreach (['a', 'b'] as $name) {
+            $cms[$name] = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $this->mins(0),
+                'duration' => HOURSECS]);
+            $sessions[$name] = $this->generator->create_session($cms[$name], $this->mins(0), $this->mins(60));
+            $this->generator->create_participant($sessions[$name], $this->mins(0), $this->mins(20), ['userid' => $student->id]);
+        }
+        // The first sync is a full pass. The activities were created an hour ago (the sync looks a
+        // few minutes back for rows written while it ran); nothing changed since, so nothing is visited.
+        $this->assertSame(2, sync::sync_all());
+        $DB->set_field('zoom', 'timemodified', time() - HOURSECS);
+        $this->assertSame(0, sync::sync_all());
+
+        // A new participant row is found from its id.
+        $this->generator->create_participant($sessions['a'], $this->mins(20), $this->mins(50), ['userid' => $student->id]);
+        $this->assertSame(1, sync::sync_all());
+        $this->assertEquals(50 * MINSECS, $this->results($cms['a']->instance)['u:' . $student->id]->attendedsecs);
+
+        // A deleted row is only noticed by a full pass.
+        $DB->delete_records('zoom_meeting_participants', ['detailsid' => $sessions['b']->id]);
+        $this->assertSame(0, sync::sync_all());
+        $this->assertArrayHasKey('u:' . $student->id, $this->results($cms['b']->instance));
+        $this->assertSame(2, sync::sync_all(null, true));
+        $this->assertArrayNotHasKey('u:' . $student->id, $this->results($cms['b']->instance));
+
+        // Changing how sessions map to classes asks for a full pass.
+        set_config('earlymarginmins', 20, 'local_zoomattendance');
+        $this->assertSame(2, sync::sync_all());
+        $this->assertGreaterThan(0, (int) get_config('local_zoomattendance', 'lastsync'));
+    }
+
+    public function test_retention_removes_old_classes_and_keeps_them_out(): void {
+        global $DB;
+        $student = $this->getDataGenerator()->create_and_enrol($this->course, 'student');
+        $cm = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $this->mins(0),
+            'duration' => HOURSECS]);
+        $session = $this->generator->create_session($cm, $this->mins(0), $this->mins(60));
+        $this->generator->create_participant($session, $this->mins(0), $this->mins(60), ['userid' => $student->id]);
+        sync::sync_all();
+        $this->assertSame(1, $DB->count_records('local_zoomattendance_occ', ['zoomid' => $cm->instance]));
+
+        // The class was a week ago; keep three days.
+        set_config('retentiondays', 3, 'local_zoomattendance');
+        sync::sync_all();
+        $this->assertSame(0, $DB->count_records('local_zoomattendance_occ', ['zoomid' => $cm->instance]));
+        $this->assertSame(0, $DB->count_records('local_zoomattendance_result'));
+        sync::sync_all(null, true);
+        $this->assertSame(0, $DB->count_records('local_zoomattendance_occ', ['zoomid' => $cm->instance]));
+        // The Zoom plugin's own data is untouched.
+        $this->assertTrue($DB->record_exists('zoom_meeting_participants', ['detailsid' => $session->id]));
+    }
 }

@@ -78,5 +78,53 @@ function xmldb_local_zoomattendance_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026100202, 'local', 'zoomattendance');
     }
 
+    if ($oldversion < 2026100602) {
+        // Why an occurrence was excluded, when its expected users were frozen, and whether it was
+        // restored from a backup.
+        $table = new xmldb_table('local_zoomattendance_occ');
+        $fields = [
+            new xmldb_field('excludereason', XMLDB_TYPE_CHAR, '255', null, null, null, null, 'usermodified'),
+            new xmldb_field('rosterfrozen', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'excludereason'),
+            new xmldb_field('restored', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'rosterfrozen'),
+        ];
+        foreach ($fields as $field) {
+            if (!$dbman->field_exists($table, $field)) {
+                $dbman->add_field($table, $field);
+            }
+        }
+
+        // The students and teachers expected at each occurrence, frozen once it is over. The next
+        // sync freezes every past occurrence from the current enrolments.
+        $table = new xmldb_table('local_zoomattendance_roster');
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('occurrenceid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('kind', XMLDB_TYPE_CHAR, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_key('occurrenceid', XMLDB_KEY_FOREIGN, ['occurrenceid'], 'local_zoomattendance_occ', ['id']);
+        $table->add_key('userid', XMLDB_KEY_FOREIGN, ['userid'], 'user', ['id']);
+        $table->add_index('occ_kind_user', XMLDB_INDEX_UNIQUE, ['occurrenceid', 'kind', 'userid']);
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
+        }
+
+        // Teachers responsible for an activity.
+        $table = new xmldb_table('local_zoomattendance_teacher');
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('cmid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('usermodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_key('userid', XMLDB_KEY_FOREIGN, ['userid'], 'user', ['id']);
+        $table->add_index('cmid_user', XMLDB_INDEX_UNIQUE, ['cmid', 'userid']);
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
+        }
+
+        upgrade_plugin_savepoint(true, 2026100602, 'local', 'zoomattendance');
+    }
+
     return true;
 }

@@ -42,3 +42,17 @@ $observers = [
         'callback' => '\local_zoomattendance\observer::course_reset_ended',
     ],
 ];
+
+// Changes to who is expected, or who may see what, make cached summaries out of date.
+$datachanges = [
+    'user_enrolment_created', 'user_enrolment_updated', 'user_enrolment_deleted',
+    'role_assigned', 'role_unassigned', 'role_capability_updated',
+    'group_member_added', 'group_member_removed',
+    'course_module_updated', 'user_updated',
+];
+foreach ($datachanges as $name) {
+    $observers[] = [
+        'eventname' => '\\core\\event\\' . $name,
+        'callback' => '\\local_zoomattendance\\observer::data_changed',
+    ];
+}

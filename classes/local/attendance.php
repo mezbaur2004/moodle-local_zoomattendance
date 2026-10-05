@@ -60,6 +60,8 @@ class attendance {
     protected $sessioncounts;
     /** @var \stdClass[]|null Users holding betrackedteacher in the module, keyed by id. */
     protected $teacherids;
+    /** @var array[] roster kind => occurrence id => [userid => true], see roster(). */
+    protected $rosters = [];
 
     /**
      * Constructor.
@@ -125,7 +127,12 @@ class attendance {
         if ((int) $occurrence->status === sync::STATUS_RESET) {
             return self::STATE_RESET;
         }
-        if ($this->session_count($occurrence) > 0) {
+        if ((int) ($occurrence->restored ?? 0)) {
+            // Restored from a backup without its Zoom sessions: held when it had session time.
+            if ((int) $occurrence->actualsecs > 0) {
+                return self::STATE_EVALUATED;
+            }
+        } else if ($this->session_count($occurrence) > 0) {
             return self::STATE_EVALUATED;
         }
         return (int) $occurrence->timeend > time() ? self::STATE_UPCOMING : self::STATE_NODATA;
@@ -159,18 +166,95 @@ class attendance {
     /**
      * Users who can be expected: enrolled, holding local/zoomattendance:betracked (or another
      * capability, such as betrackedteacher), not suspended, and able to access the activity.
-     * Each gets their active enrolment windows.
+     * Each gets their active enrolment windows. Users on the frozen list of a past class are
+     * added too, even when they have since left the course (see is_expected()).
      *
      * @param int $groupid Limit to a group (0 for all).
      * @param int[]|null $userids Limit to these users.
      * @param string $capability Capability that makes a user expected.
+     * @param bool $withroster Add the users of frozen lists. False gives the live users only.
      * @return \stdClass[] userid => user record with a "windows" list of [timestart, timeend].
      */
     public function get_candidates(
         int $groupid = 0,
         ?array $userids = null,
-        string $capability = 'local/zoomattendance:betracked'
+        string $capability = 'local/zoomattendance:betracked',
+        bool $withroster = true
     ): array {
+        $users = $this->live_candidates($groupid, $userids, $capability);
+        if ($withroster) {
+            $kind = $capability === 'local/zoomattendance:betrackedteacher' ? roster::KIND_TEACHER : roster::KIND_STUDENT;
+            $users += $this->roster_candidates($kind, $groupid, $userids, $users);
+        }
+        return $users;
+    }
+
+    /**
+     * Users on a frozen list of this activity who are not among the given users.
+     *
+     * @param string $kind A roster::KIND_* constant.
+     * @param int $groupid Limit to the current members of a group (0 for all).
+     * @param int[]|null $userids Limit to these users.
+     * @param \stdClass[] $have Users already known, keyed by id.
+     * @return \stdClass[] userid => user record with no enrolment windows.
+     */
+    public function roster_candidates(string $kind, int $groupid = 0, ?array $userids = null, array $have = []): array {
+        $ids = [];
+        foreach ($this->roster($kind) as $users) {
+            $ids += $users;
+        }
+        $ids = array_diff_key($ids, $have);
+        if ($userids !== null) {
+            $ids = array_intersect_key($ids, array_flip($userids));
+        }
+        if ($ids && $groupid) {
+            $ids = array_intersect_key($ids, groups_get_members($groupid, 'u.id'));
+        }
+        $users = $this->load_users(array_keys($ids));
+        foreach ($users as $user) {
+            $user->windows = [];
+        }
+        return $users;
+    }
+
+    /**
+     * Frozen expected users of this activity.
+     *
+     * @param string $kind A roster::KIND_* constant.
+     * @return array occurrence id => [userid => true]
+     */
+    protected function roster(string $kind): array {
+        if (!isset($this->rosters[$kind])) {
+            $this->rosters[$kind] = roster::load((int) $this->instance->id, $kind);
+        }
+        return $this->rosters[$kind];
+    }
+
+    /**
+     * Whether a candidate was expected at an occurrence: on its frozen list once it has one,
+     * otherwise when their enrolment covered it.
+     *
+     * @param \stdClass $candidate From get_candidates().
+     * @param \stdClass $occurrence
+     * @param string $kind A roster::KIND_* constant.
+     * @return bool
+     */
+    public function is_expected(\stdClass $candidate, \stdClass $occurrence, string $kind = roster::KIND_STUDENT): bool {
+        if ((int) ($occurrence->rosterfrozen ?? 0) > 0) {
+            return isset($this->roster($kind)[(int) $occurrence->id][(int) $candidate->id]);
+        }
+        return self::covers($candidate, $occurrence);
+    }
+
+    /**
+     * The live expected users, see get_candidates().
+     *
+     * @param int $groupid
+     * @param int[]|null $userids
+     * @param string $capability
+     * @return \stdClass[]
+     */
+    protected function live_candidates(int $groupid, ?array $userids, string $capability): array {
         global $DB;
         $join = get_enrolled_with_capabilities_join($this->context, '', $capability, $groupid);
         $sql = "SELECT DISTINCT u.id FROM {user} u {$join->joins} WHERE {$join->wheres} AND u.suspended = 0";
@@ -298,7 +382,7 @@ class attendance {
 
         $expectedids = [];
         foreach ($candidates as $userid => $candidate) {
-            if (!self::covers($candidate, $occurrence)) {
+            if (!$this->is_expected($candidate, $occurrence)) {
                 continue;
             }
             $expectedids[$userid] = true;

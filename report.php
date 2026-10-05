@@ -62,16 +62,24 @@ if ($action !== '') {
     require_capability('local/zoomattendance:manage', $context);
     if ($action === 'recompute') {
         $done = sync::sync_instance($attendance->instance, true);
+        if (!$done) {
+            // Another sync holds the activity: recompute in the background.
+            \local_zoomattendance\task\recompute::queue(null, (int) $attendance->instance->id, true);
+        }
         redirect($url, get_string($done ? 'recomputed' : 'recomputebusy', 'local_zoomattendance'));
     }
-    if ($action === 'exclude' || $action === 'include') {
+    if ($action === 'include') {
+        // Excluding takes a reason, on its own page (exclude.php).
+        if (!manual::can_exclude($context)) {
+            throw new required_capability_exception($context, 'local/zoomattendance:excludetracked', 'nopermissions', '');
+        }
         $target = $DB->get_record(
             'local_zoomattendance_occ',
             ['id' => required_param('target', PARAM_INT), 'zoomid' => $attendance->instance->id],
             '*',
             MUST_EXIST
         );
-        manual::set_excluded($target, $action === 'exclude');
+        manual::set_excluded($target, false);
         redirect($url);
     }
     throw new moodle_exception('invalidaction', 'local_zoomattendance');
@@ -135,7 +143,7 @@ if ($occurrenceid && !$masked && !$nogroupaccess) {
             }
         }
         $filename = clean_filename($cm->name . '-' . userdate($occurrence->timestart, '%Y%m%d-%H%M'));
-        \core\dataformat::download_data($filename, $download, $columns, $rows);
+        \local_zoomattendance\local\export::download($filename, $download, $columns, $rows);
         die();
     }
 }
@@ -209,7 +217,7 @@ if ($nogroupaccess) {
             }
             $evaluations[$occurrence->id] = $evaluation;
         }
-        echo $output->occurrence_list($attendance, $evaluations, $baseurl, $canmanage, $masked);
+        echo $output->occurrence_list($attendance, $evaluations, $baseurl, $canmanage, $masked, manual::can_exclude($context));
     }
     $links = [html_writer::link(
         new moodle_url('/mod/zoom/report.php', ['id' => $cm->id]),

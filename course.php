@@ -30,6 +30,8 @@ use local_zoomattendance\output\renderer;
 
 $id = required_param('id', PARAM_INT);
 $download = optional_param('download', '', PARAM_ALPHA);
+$page = optional_param('page', 0, PARAM_INT);
+$perpage = optional_param('perpage', 50, PARAM_INT);
 
 $course = get_course($id);
 require_login($course);
@@ -85,7 +87,8 @@ if ($download !== '' && $summary && $summary->activities) {
         $record['overall'] = '';
         $rows[] = $record;
     }
-    \core\dataformat::download_data(clean_filename($course->shortname . '-zoomattendance'), $download, $columns, $rows);
+    $filename = clean_filename($course->shortname . '-zoomattendance');
+    \local_zoomattendance\local\export::download($filename, $download, $columns, $rows);
     die();
 }
 
@@ -109,7 +112,14 @@ if ($masked) {
             'present' => $defaults->presentpct,
             'partial' => $defaults->latepct,
         ]), ['class' => 'small text-muted']);
-    echo $output->course_table($summary);
+    // Large courses are shown a page of students at a time; the download has everyone.
+    $total = count($summary->users);
+    $perpage = max(10, min(500, $perpage));
+    $pageids = array_slice(array_keys($summary->users), $page * $perpage, $perpage);
+    $pageurl = new moodle_url($url, ['perpage' => $perpage, 'group' => $groupid]);
+    echo $output->paging_bar($total, $page, $perpage, $pageurl);
+    echo $output->course_table($summary, $pageids);
+    echo $output->paging_bar($total, $page, $perpage, $pageurl);
     echo $output->download_dataformat_selector(
         get_string('download'),
         $url->out_omit_querystring(),

@@ -50,6 +50,16 @@ final class manual_test extends \advanced_testcase {
     }
 
     /**
+     * Run the queued background tasks, as cron would.
+     */
+    protected function run_adhoc_tasks(): void {
+        while ($task = \core\task\manager::get_next_adhoc_task(time())) {
+            $task->execute();
+            \core\task\manager::adhoc_task_complete($task);
+        }
+    }
+
+    /**
      * Minutes after t0.
      *
      * @param int $minutes
@@ -105,7 +115,10 @@ final class manual_test extends \advanced_testcase {
         $this->assertEquals(20 * MINSECS, $this->results($cm->instance)['u:' . $student->id]->attendedsecs);
         $this->assertArrayHasKey($key, $this->results($cm->instance));
 
-        $this->assertTrue(manual::link_identity($this->course->id, $key, $student->id, 'iPhone'));
+        // The recompute runs in the background.
+        $this->assertFalse(manual::link_identity($this->course->id, $key, $student->id, 'iPhone'));
+        $this->assertEquals(20 * MINSECS, $this->results($cm->instance)['u:' . $student->id]->attendedsecs);
+        $this->run_adhoc_tasks();
         $results = $this->results($cm->instance);
         $this->assertArrayNotHasKey($key, $results);
         // Union of 0-20 and 15-40, not the sum.
@@ -121,9 +134,11 @@ final class manual_test extends \advanced_testcase {
         global $DB;
         [$cm, $student, $key] = $this->meeting_with_phone();
         manual::link_identity($this->course->id, $key, $student->id, 'iPhone');
+        $this->run_adhoc_tasks();
         $link = $DB->get_record('local_zoomattendance_idmap', ['courseid' => $this->course->id, 'identitykey' => $key]);
 
-        $this->assertTrue(manual::unlink_identity($this->course->id, $link->id));
+        $this->assertFalse(manual::unlink_identity($this->course->id, $link->id));
+        $this->run_adhoc_tasks();
         $results = $this->results($cm->instance);
         $this->assertArrayHasKey($key, $results);
         $this->assertEquals(20 * MINSECS, $results['u:' . $student->id]->attendedsecs);
@@ -135,6 +150,7 @@ final class manual_test extends \advanced_testcase {
         $othercourse = $this->getDataGenerator()->create_course();
         $other = $this->getDataGenerator()->create_and_enrol($othercourse, 'student');
         manual::link_identity($othercourse->id, $key, $other->id, 'iPhone');
+        $this->run_adhoc_tasks();
         $this->assertArrayHasKey($key, $this->results($cm->instance));
     }
 
@@ -254,7 +270,7 @@ final class manual_test extends \advanced_testcase {
         $this->assertEquals($teacher->id, $link->usermodified);
 
         $occurrence = $DB->get_record('local_zoomattendance_occ', ['zoomid' => $cm->instance]);
-        manual::set_excluded($occurrence, true);
+        manual::set_excluded($occurrence, true, 'Public holiday');
         $updated = $DB->get_record('local_zoomattendance_occ', ['id' => $occurrence->id]);
         $this->assertEquals(sync::STATUS_EXCLUDED, $updated->status);
         $this->assertEquals($teacher->id, $updated->usermodified);
@@ -278,6 +294,44 @@ final class manual_test extends \advanced_testcase {
         $this->assertInstanceOf(\moodle_url::class, $events[1]->get_url());
     }
 
+    public function test_exclusion_needs_a_reason_and_the_right_role_while_teachers_are_tracked(): void {
+        global $DB;
+        $cm = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $this->mins(0),
+            'duration' => HOURSECS]);
+        sync::sync_all();
+        $context = \context_module::instance($cm->id);
+        $occurrence = $DB->get_record('local_zoomattendance_occ', ['zoomid' => $cm->instance]);
+        $teacher = $this->getDataGenerator()->create_and_enrol($this->course, 'editingteacher');
+        $manager = $this->getDataGenerator()->create_and_enrol($this->course, 'manager');
+
+        // Without teacher tracking, managing the activity is enough.
+        set_config('teachertracking', 0, 'local_zoomattendance');
+        $this->setUser($teacher);
+        $this->assertTrue(manual::can_exclude($context));
+        // While teachers are tracked, they cannot exclude their own classes; managers can.
+        set_config('teachertracking', 1, 'local_zoomattendance');
+        $this->assertFalse(manual::can_exclude($context));
+        $this->setUser($manager);
+        $this->assertTrue(manual::can_exclude($context));
+
+        try {
+            manual::set_excluded($occurrence, true, '   ');
+            $this->fail('A reason is required.');
+        } catch (\coding_exception $e) {
+            $this->assertStringContainsString('reason', $e->getMessage());
+        }
+        $sink = $this->redirectEvents();
+        manual::set_excluded($occurrence, true, 'Public holiday');
+        $this->assertSame('Public holiday', $DB->get_field('local_zoomattendance_occ', 'excludereason', ['id' => $occurrence->id]));
+        $event = $sink->get_events()[0];
+        $this->assertSame('Public holiday', $event->other['reason']);
+        $this->assertStringContainsString('Public holiday', $event->get_description());
+
+        // Including it again clears the reason.
+        manual::set_excluded($occurrence, false);
+        $this->assertNull($DB->get_field('local_zoomattendance_occ', 'excludereason', ['id' => $occurrence->id]));
+    }
+
     public function test_cancelled_occurrences_cannot_be_excluded(): void {
         global $DB;
         $cm = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $this->mins(0),
@@ -286,7 +340,7 @@ final class manual_test extends \advanced_testcase {
         $occurrence = $DB->get_record('local_zoomattendance_occ', ['zoomid' => $cm->instance]);
         $DB->set_field('local_zoomattendance_occ', 'status', sync::STATUS_CANCELLED, ['id' => $occurrence->id]);
         $occurrence->status = sync::STATUS_CANCELLED;
-        manual::set_excluded($occurrence, true);
+        manual::set_excluded($occurrence, true, 'Public holiday');
         $status = $DB->get_field('local_zoomattendance_occ', 'status', ['id' => $occurrence->id]);
         $this->assertEquals(sync::STATUS_CANCELLED, $status);
     }

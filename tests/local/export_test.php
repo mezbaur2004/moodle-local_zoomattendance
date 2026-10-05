@@ -15,20 +15,31 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Version information for local_zoomattendance.
+ * Tests for safe downloads.
  *
  * @package    local_zoomattendance
  * @copyright  2026 Mezbaur Are Rafi
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-defined('MOODLE_INTERNAL') || die();
+namespace local_zoomattendance\local;
 
-$plugin->component = 'local_zoomattendance';
-$plugin->version = 2026100602;
-$plugin->requires = 2022112800; // Moodle 4.1.
-$plugin->maturity = MATURITY_BETA;
-$plugin->release = '0.4.0';
-$plugin->dependencies = [
-    'mod_zoom' => 2026082400, // Mod_zoom v5.5.1.
-];
+#[\PHPUnit\Framework\Attributes\CoversClass(export::class)]
+/**
+ * Tests for safe downloads.
+ *
+ * @covers \local_zoomattendance\local\export
+ */
+final class export_test extends \advanced_testcase {
+    public function test_formula_text_is_neutralised(): void {
+        foreach (['=HYPERLINK("x")', '+1', '-2+3', '@SUM(A1)', "\tcmd", "\rcmd"] as $value) {
+            $this->assertSame("'" . $value, export::cell($value));
+        }
+        // Ordinary text, numbers and empty cells stay as they are.
+        $this->assertSame('Amy Student', export::cell('Amy Student'));
+        $this->assertSame('', export::cell(''));
+        $this->assertSame(-5, export::cell(-5));
+        $this->assertSame(42.5, export::cell(42.5));
+        $this->assertNull(export::cell(null));
+    }
+}

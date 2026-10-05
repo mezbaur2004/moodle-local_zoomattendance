@@ -43,7 +43,8 @@ class occurrence_excluded extends occurrence_event {
      * @return string
      */
     public function get_description() {
+        $reason = isset($this->other['reason']) ? " Reason: '" . s($this->other['reason']) . "'." : '';
         return "The user with id '$this->userid' excluded the occurrence with id '$this->objectid' " .
-            "of the Zoom activity with course module id '$this->contextinstanceid'.";
+            "of the Zoom activity with course module id '$this->contextinstanceid'." . $reason;
     }
 }

@@ -29,6 +29,8 @@ if ($hassiteconfig) {
     $ADMIN->add('localplugins', $settings);
 
     if ($ADMIN->fulltree) {
+        // Minutes, hours and days: whole numbers only.
+        $wholenumber = '/^\d{1,5}$/';
         $settings->add(new admin_setting_configcheckbox(
             'local_zoomattendance/defaultenabled',
             new lang_string('defaultenabled', 'local_zoomattendance'),
@@ -61,7 +63,7 @@ if ($hassiteconfig) {
             new lang_string('lategracemins', 'local_zoomattendance'),
             new lang_string('lategracemins_desc', 'local_zoomattendance'),
             10,
-            PARAM_INT
+            $wholenumber
         ));
         $settings->add(new admin_setting_configselect(
             'local_zoomattendance/denominator',
@@ -84,21 +86,21 @@ if ($hassiteconfig) {
             new lang_string('earlymarginmins', 'local_zoomattendance'),
             new lang_string('earlymarginmins_desc', 'local_zoomattendance'),
             30,
-            PARAM_INT
+            $wholenumber
         ));
         $settings->add(new admin_setting_configtext(
             'local_zoomattendance/latemarginmins',
             new lang_string('latemarginmins', 'local_zoomattendance'),
             new lang_string('latemarginmins_desc', 'local_zoomattendance'),
             30,
-            PARAM_INT
+            $wholenumber
         ));
         $settings->add(new admin_setting_configtext(
             'local_zoomattendance/clustergapmins',
             new lang_string('clustergapmins', 'local_zoomattendance'),
             new lang_string('clustergapmins_desc', 'local_zoomattendance'),
             30,
-            PARAM_INT
+            $wholenumber
         ));
 
         $settings->add(new admin_setting_heading(
@@ -133,15 +135,35 @@ if ($hassiteconfig) {
             new lang_string('teachergracemins', 'local_zoomattendance'),
             new lang_string('teachergracemins_desc', 'local_zoomattendance'),
             5,
-            PARAM_INT
+            $wholenumber
         ));
         $settings->add(new admin_setting_configtext(
             'local_zoomattendance/teachernotheldhours',
             new lang_string('teachernotheldhours', 'local_zoomattendance'),
             new lang_string('teachernotheldhours_desc', 'local_zoomattendance'),
             24,
-            PARAM_INT
+            $wholenumber
         ));
+
+        $settings->add(new admin_setting_heading(
+            'local_zoomattendance/retention',
+            new lang_string('retention', 'local_zoomattendance'),
+            ''
+        ));
+        $settings->add(new admin_setting_configtext(
+            'local_zoomattendance/retentiondays',
+            new lang_string('retentiondays', 'local_zoomattendance'),
+            new lang_string('retentiondays_desc', 'local_zoomattendance'),
+            0,
+            $wholenumber
+        ));
+
+        // Thresholds and the rest change what reports show: cached summaries must not outlive them.
+        foreach ($settings->settings as $setting) {
+            if (empty($setting->updatedcallback)) {
+                $setting->set_updatedcallback('\\local_zoomattendance\\local\\data_version::bump');
+            }
+        }
     }
 }
 

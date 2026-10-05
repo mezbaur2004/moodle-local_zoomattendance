@@ -46,10 +46,14 @@ abstract class occurrence_event extends \core\event\base {
      * @return self
      */
     public static function create_from_occurrence(\stdClass $occurrence, \stdClass $cm) {
+        $other = ['timestart' => (int) $occurrence->timestart, 'timeend' => (int) $occurrence->timeend];
+        if (!empty($occurrence->excludereason)) {
+            $other['reason'] = (string) $occurrence->excludereason;
+        }
         $event = static::create([
             'context' => \context_module::instance($cm->id),
             'objectid' => $occurrence->id,
-            'other' => ['timestart' => (int) $occurrence->timestart, 'timeend' => (int) $occurrence->timeend],
+            'other' => $other,
         ]);
         $event->add_record_snapshot('local_zoomattendance_occ', $occurrence);
         return $event;

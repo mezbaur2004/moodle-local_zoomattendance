@@ -24,6 +24,7 @@
 
 namespace local_zoomattendance;
 
+use local_zoomattendance\local\data_version;
 use local_zoomattendance\local\sync;
 
 /**
@@ -38,8 +39,10 @@ class observer {
     public static function course_module_deleted(\core\event\course_module_deleted $event): void {
         global $DB;
         $DB->delete_records('local_zoomattendance_setting', ['cmid' => $event->objectid]);
+        $DB->delete_records('local_zoomattendance_teacher', ['cmid' => $event->objectid]);
         if (($event->other['modulename'] ?? '') === 'zoom') {
             sync::delete_for_zoomids([(int) $event->other['instanceid']]);
+            data_version::bump();
         }
     }
 
@@ -61,9 +64,13 @@ class observer {
         global $DB;
         $DB->delete_records('local_zoomattendance_result', ['userid' => $event->objectid]);
         $DB->delete_records('local_zoomattendance_idmap', ['userid' => $event->objectid]);
+        $DB->delete_records('local_zoomattendance_roster', ['userid' => $event->objectid]);
+        $DB->delete_records('local_zoomattendance_teacher', ['userid' => $event->objectid]);
         // Changes the user made stay, without naming them.
         $DB->set_field('local_zoomattendance_occ', 'usermodified', 0, ['usermodified' => $event->objectid]);
         $DB->set_field('local_zoomattendance_idmap', 'usermodified', 0, ['usermodified' => $event->objectid]);
+        $DB->set_field('local_zoomattendance_teacher', 'usermodified', 0, ['usermodified' => $event->objectid]);
+        data_version::bump();
     }
 
     /**
@@ -97,5 +104,14 @@ class observer {
         } catch (\Throwable $e) {
             debugging('local_zoomattendance: reset sync failed: ' . $e->getMessage(), DEBUG_DEVELOPER);
         }
+    }
+
+    /**
+     * Enrolments, roles, groups, an activity or a user changed: cached summaries are out of date.
+     *
+     * @param \core\event\base $event
+     */
+    public static function data_changed(\core\event\base $event): void {
+        data_version::bump();
     }
 }

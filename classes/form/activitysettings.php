@@ -76,6 +76,26 @@ class activitysettings extends \moodleform {
         ]);
         $mform->addHelpButton('denominator', 'denominator', 'local_zoomattendance');
 
+        // Teachers responsible for this activity: choosing them limits teacher attendance to them.
+        $teachers = $this->_customdata['teachers'] ?? [];
+        if (!empty($this->_customdata['canresponsible'])) {
+            $mform->addElement(
+                'autocomplete',
+                'responsible',
+                get_string('responsible', 'local_zoomattendance'),
+                $teachers,
+                ['multiple' => true, 'noselectionstring' => get_string('responsibleall', 'local_zoomattendance')]
+            );
+            $mform->addHelpButton('responsible', 'responsible', 'local_zoomattendance');
+        } else if (!empty($this->_customdata['responsiblenames'])) {
+            $mform->addElement(
+                'static',
+                'responsiblestatic',
+                get_string('responsible', 'local_zoomattendance'),
+                s(implode(', ', $this->_customdata['responsiblenames']))
+            );
+        }
+
         $this->add_action_buttons();
     }
 

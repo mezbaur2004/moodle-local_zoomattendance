@@ -84,6 +84,14 @@ $capabilities = [
             'editingteacher' => CAP_ALLOW,
         ],
     ],
+    'local/zoomattendance:excludetracked' => [
+        'riskbitmask' => RISK_DATALOSS,
+        'captype' => 'write',
+        'contextlevel' => CONTEXT_COURSE,
+        'archetypes' => [
+            'manager' => CAP_ALLOW,
+        ],
+    ],
     'local/zoomattendance:viewnoneditingteachers' => [
         'riskbitmask' => RISK_PERSONAL,
         'captype' => 'read',
