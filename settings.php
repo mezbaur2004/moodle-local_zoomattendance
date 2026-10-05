@@ -155,7 +155,8 @@ if ($hassiteconfig) {
             new lang_string('retentiondays', 'local_zoomattendance'),
             new lang_string('retentiondays_desc', 'local_zoomattendance'),
             0,
-            $wholenumber
+            // 0, or at least 30 days: deleted classes cannot be brought back.
+            '/^(0|[3-9]\d|[1-9]\d{2,4})$/'
         ));
 
         // Thresholds and the rest change what reports show: cached summaries must not outlive them.

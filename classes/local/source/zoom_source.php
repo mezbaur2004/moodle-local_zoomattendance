@@ -123,9 +123,14 @@ class zoom_source {
      */
     public static function get_sessions(int $zoomid): array {
         global $DB;
+        // Rows changed in place (a new user match, other times) change the sums too; the user
+        // sum is weighted by the row, so swapping the users of two rows shows.
+        $weight = $DB->sql_modulo('p.id', 997);
         $sql = "SELECT d.id, d.uuid, d.start_time, d.end_time,
                        COUNT(p.id) AS cnt, COALESCE(MIN(p.id), 0) AS minid, COALESCE(MAX(p.id), 0) AS maxid,
-                       COALESCE(SUM(COALESCE(p.userid, 0)), 0) AS usersum
+                       COALESCE(SUM(COALESCE(p.userid, 0)), 0) AS usersum,
+                       COALESCE(SUM(COALESCE(p.userid, 0) * ($weight + 1)), 0) AS userweight,
+                       COALESCE(SUM(p.join_time), 0) AS joinsum, COALESCE(SUM(p.leave_time), 0) AS leavesum
                   FROM {zoom_meeting_details} d
              LEFT JOIN {zoom_meeting_participants} p ON p.detailsid = d.id
                  WHERE d.zoomid = :zoomid
@@ -133,6 +138,11 @@ class zoom_source {
         $sessions = $DB->get_records_sql($sql, ['zoomid' => $zoomid]);
         foreach ($sessions as $session) {
             $session->fingerprint = sha1(implode('|', [$session->start_time, $session->end_time, $session->cnt,
+                $session->minid, $session->maxid, $session->usersum, $session->userweight, $session->joinsum,
+                $session->leavesum]));
+            // As 0.4.0 and earlier stored it, so the first sync after an upgrade does not
+            // recompute every class (see sync::do_sync()).
+            $session->legacyfingerprint = sha1(implode('|', [$session->start_time, $session->end_time, $session->cnt,
                 $session->minid, $session->maxid, $session->usersum]));
         }
         return $sessions;

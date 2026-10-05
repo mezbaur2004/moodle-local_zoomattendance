@@ -149,4 +149,23 @@ final class data_version_test extends \advanced_testcase {
         sync::sync_instance(reset($instances));
         $this->assertNotSame($version, data_version::for_course((int) $course->id));
     }
+
+    public function test_viewers_seeing_other_identity_fields_do_not_share_summaries(): void {
+        $this->resetAfterTest();
+        $dg = $this->getDataGenerator();
+        $course = $dg->create_course();
+        $cm = $dg->get_plugin_generator('local_zoomattendance')->create_zoom(['course' => $course->id]);
+        $this->setAdminUser();
+        set_config('showuseridentity', 'email');
+        $email = attendance::identity_key([$cm]);
+        set_config('showuseridentity', 'email,idnumber');
+        $this->assertNotSame($email, attendance::identity_key([$cm]));
+        // A viewer without the identity capability sees none.
+        $teacher = $dg->create_and_enrol($course, 'editingteacher');
+        $roleid = $this->getDataGenerator()->create_role();
+        assign_capability('moodle/site:viewuseridentity', CAP_PROHIBIT, $roleid, \context_course::instance($course->id));
+        role_assign($roleid, $teacher->id, \context_course::instance($course->id));
+        $this->setUser($teacher);
+        $this->assertSame(sha1($cm->id . ':'), attendance::identity_key([$cm]));
+    }
 }

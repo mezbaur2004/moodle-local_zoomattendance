@@ -103,7 +103,7 @@ class teacher_summary {
             $ids,
             $from,
             $to,
-            has_capability('moodle/site:viewuseridentity', \context_course::instance($course->id)),
+            attendance::identity_key(get_fast_modinfo($course)->get_instances_of('zoom')),
         ];
         // Not held also depends on the Zoom plugin's report watermark and on time.
         $stamp = (int) get_config('zoom', 'last_call_made_at') . '/' . intdiv(time(), HOURSECS);

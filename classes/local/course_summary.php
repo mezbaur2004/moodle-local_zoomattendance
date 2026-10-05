@@ -69,7 +69,7 @@ class course_summary {
             $groupid,
             $userid,
             array_keys($cms),
-            has_capability('moodle/site:viewuseridentity', \context_course::instance($course->id)),
+            attendance::identity_key($cms),
         ];
         $summary = data_version::cached($key, function () use ($cms, $groupid, $userid) {
             $summary = self::compute($cms, $groupid, $userid);

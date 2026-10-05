@@ -392,6 +392,17 @@ final class sync_test extends \advanced_testcase {
         $this->assertSame(0, $DB->count_records('local_zoomattendance_occ'));
     }
 
+    /**
+     * Make the incremental sync treat every mod_zoom row so far as long known: it looks at the
+     * most recent ids again, for rows committed late.
+     */
+    protected function forget_recent_rows(): void {
+        $state = json_decode(get_config('local_zoomattendance', 'syncstate'));
+        $state->pid += 2000;
+        $state->did += 2000;
+        set_config('syncstate', json_encode($state), 'local_zoomattendance');
+    }
+
     public function test_hourly_sync_only_visits_changed_activities(): void {
         global $DB;
         $student = $this->getDataGenerator()->create_and_enrol($this->course, 'student');
@@ -407,14 +418,19 @@ final class sync_test extends \advanced_testcase {
         // few minutes back for rows written while it ran); nothing changed since, so nothing is visited.
         $this->assertSame(2, sync::sync_all());
         $DB->set_field('zoom', 'timemodified', time() - HOURSECS);
+        // Recent rows are looked at again, in case one was committed late.
+        $this->assertSame(2, sync::sync_all());
+        $this->forget_recent_rows();
         $this->assertSame(0, sync::sync_all());
 
         // A new participant row is found from its id.
+        $this->forget_recent_rows();
         $this->generator->create_participant($sessions['a'], $this->mins(20), $this->mins(50), ['userid' => $student->id]);
         $this->assertSame(1, sync::sync_all());
         $this->assertEquals(50 * MINSECS, $this->results($cms['a']->instance)['u:' . $student->id]->attendedsecs);
 
         // A deleted row is only noticed by a full pass.
+        $this->forget_recent_rows();
         $DB->delete_records('zoom_meeting_participants', ['detailsid' => $sessions['b']->id]);
         $this->assertSame(0, sync::sync_all());
         $this->assertArrayHasKey('u:' . $student->id, $this->results($cms['b']->instance));
@@ -430,15 +446,19 @@ final class sync_test extends \advanced_testcase {
     public function test_retention_removes_old_classes_and_keeps_them_out(): void {
         global $DB;
         $student = $this->getDataGenerator()->create_and_enrol($this->course, 'student');
-        $cm = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $this->mins(0),
+        $old = time() - 40 * DAYSECS;
+        $cm = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $old,
             'duration' => HOURSECS]);
-        $session = $this->generator->create_session($cm, $this->mins(0), $this->mins(60));
-        $this->generator->create_participant($session, $this->mins(0), $this->mins(60), ['userid' => $student->id]);
+        $session = $this->generator->create_session($cm, $old, $old + HOURSECS);
+        $this->generator->create_participant($session, $old, $old + HOURSECS, ['userid' => $student->id]);
         sync::sync_all();
         $this->assertSame(1, $DB->count_records('local_zoomattendance_occ', ['zoomid' => $cm->instance]));
 
-        // The class was a week ago; keep three days.
+        // Three days is less than the shortest period: 30 days are kept.
         set_config('retentiondays', 3, 'local_zoomattendance');
+        $this->assertEqualsWithDelta(time() - 30 * DAYSECS, settings::retention_cutoff(), 5);
+
+        // The class was 40 days ago.
         sync::sync_all();
         $this->assertSame(0, $DB->count_records('local_zoomattendance_occ', ['zoomid' => $cm->instance]));
         $this->assertSame(0, $DB->count_records('local_zoomattendance_result'));
@@ -446,5 +466,72 @@ final class sync_test extends \advanced_testcase {
         $this->assertSame(0, $DB->count_records('local_zoomattendance_occ', ['zoomid' => $cm->instance]));
         // The Zoom plugin's own data is untouched.
         $this->assertTrue($DB->record_exists('zoom_meeting_participants', ['detailsid' => $session->id]));
+    }
+
+    public function test_retention_does_not_bring_back_a_class_at_the_cutoff(): void {
+        global $DB;
+        $student = $this->getDataGenerator()->create_and_enrol($this->course, 'student');
+        set_config('retentiondays', 30, 'local_zoomattendance');
+        // A class that started just before the cutoff and ran past it.
+        $start = time() - 30 * DAYSECS - 30 * MINSECS;
+        $cm = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $start,
+            'duration' => HOURSECS]);
+        $session = $this->generator->create_session($cm, $start, $start + HOURSECS + 10 * MINSECS);
+        $this->generator->create_participant($session, $start, $start + HOURSECS, ['userid' => $student->id]);
+        sync::sync_all(null, true);
+        sync::sync_all(null, true);
+        // Neither the scheduled class nor a class made up from its session is kept.
+        $this->assertSame(0, $DB->count_records('local_zoomattendance_occ', ['zoomid' => $cm->instance]));
+    }
+
+    public function test_late_committed_and_changed_rows_are_noticed(): void {
+        global $DB;
+        $amy = $this->getDataGenerator()->create_and_enrol($this->course, 'student');
+        $ben = $this->getDataGenerator()->create_and_enrol($this->course, 'student');
+        $cm = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $this->mins(0),
+            'duration' => HOURSECS]);
+        $session = $this->generator->create_session($cm, $this->mins(0), $this->mins(60));
+        $gap = $this->generator->create_participant($session, $this->mins(0), $this->mins(10), ['userid' => $ben->id]);
+        $this->generator->create_participant($session, $this->mins(0), $this->mins(60), ['userid' => $amy->id]);
+        $DB->delete_records('zoom_meeting_participants', ['id' => $gap->id]);
+        sync::sync_all();
+        $DB->set_field('zoom', 'timemodified', time() - HOURSECS);
+
+        // A row whose id was handed out earlier is committed after the sync saw higher ids.
+        $DB->insert_record_raw('zoom_meeting_participants', (array) $gap, false, false, true);
+        sync::sync_all();
+        $this->assertEquals(10 * MINSECS, $this->results($cm->instance)['u:' . $ben->id]->attendedsecs);
+
+        // The Zoom plugin re-matches two rows in place, swapping their users.
+        $rows = $DB->get_records('zoom_meeting_participants', ['detailsid' => $session->id], 'id');
+        [$first, $second] = array_values($rows);
+        $DB->set_field('zoom_meeting_participants', 'userid', $second->userid, ['id' => $first->id]);
+        $DB->set_field('zoom_meeting_participants', 'userid', $first->userid, ['id' => $second->id]);
+        sync::sync_all(null, true);
+        $results = $this->results($cm->instance);
+        $this->assertEquals(10 * MINSECS, $results['u:' . $amy->id]->attendedsecs);
+        $this->assertEquals(60 * MINSECS, $results['u:' . $ben->id]->attendedsecs);
+    }
+
+    public function test_fingerprints_from_older_versions_do_not_recompute(): void {
+        global $DB;
+        $student = $this->getDataGenerator()->create_and_enrol($this->course, 'student');
+        $cm = $this->generator->create_zoom(['course' => $this->course->id, 'start_time' => $this->mins(0),
+            'duration' => HOURSECS]);
+        $session = $this->generator->create_session($cm, $this->mins(0), $this->mins(60));
+        $this->generator->create_participant($session, $this->mins(0), $this->mins(60), ['userid' => $student->id]);
+        sync::sync_all();
+        $sessions = source\zoom_source::get_sessions((int) $cm->instance);
+        $DB->set_field('local_zoomattendance_session', 'fingerprint', $sessions[$session->id]->legacyfingerprint);
+        $DB->set_field('local_zoomattendance_occ', 'timecomputed', 1);
+
+        sync::sync_all(null, true);
+        // Stored the new way, without recomputing the class.
+        $this->assertSame($sessions[$session->id]->fingerprint, $DB->get_field(
+            'local_zoomattendance_session',
+            'fingerprint',
+            ['detailsid' => $session->id]
+        ));
+        $this->assertEquals(1, $DB->get_field('local_zoomattendance_occ', 'timecomputed', ['zoomid' => $cm->instance]));
     }
 }

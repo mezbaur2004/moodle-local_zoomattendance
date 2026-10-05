@@ -523,6 +523,22 @@ class attendance {
     }
 
     /**
+     * The identity fields the current user may see in each activity, for cache keys: two viewers
+     * share a cached summary only when it shows them the same fields.
+     *
+     * @param \cm_info[] $cms
+     * @return string
+     */
+    public static function identity_key(array $cms): string {
+        $parts = [];
+        foreach ($cms as $cm) {
+            $fields = \core_user\fields::get_identity_fields(\context_module::instance($cm->id), false);
+            $parts[] = $cm->id . ':' . implode(',', $fields);
+        }
+        return sha1(implode(';', $parts));
+    }
+
+    /**
      * Identity field names to display for this context.
      *
      * @return string[]

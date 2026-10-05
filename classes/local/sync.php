@@ -65,6 +65,8 @@ class sync {
 
     /** @var string Config name holding the incremental sync state. */
     protected const STATE_CONFIG = 'syncstate';
+    /** @var int Ids below the last highest one the incremental sync looks at again. */
+    protected const ID_OVERLAP = 2000;
 
     /**
      * Sync every enabled instance, then remove data whose activity no longer exists.
@@ -158,8 +160,11 @@ class sync {
             return [true, $marks, null];
         }
 
-        // A few minutes of overlap, for rows written while the last sync ran.
+        // Some overlap, for rows written while the last sync ran. Ids are handed out before the
+        // rows are committed, so a row can appear below the highest id seen last time.
         $since = (int) $state->time - 5 * MINSECS;
+        $state->pid = max(0, (int) $state->pid - self::ID_OVERLAP);
+        $state->did = max(0, (int) $state->did - self::ID_OVERLAP);
         $queries = [
             ["SELECT DISTINCT d.zoomid
                 FROM {zoom_meeting_participants} p
@@ -311,9 +316,10 @@ class sync {
         });
         $sessions = zoom_source::get_sessions($zoomid);
         if ($cutoff = settings::retention_cutoff()) {
-            // Classes older than the retention period are no longer kept.
+            // Classes that started before the retention period are no longer kept (see
+            // purge_expired()). Sessions a little older still map to the classes not purged yet.
             $sessions = array_filter($sessions, function ($session) use ($cutoff) {
-                return (int) $session->end_time >= $cutoff;
+                return (int) $session->end_time >= $cutoff - DAYSECS;
             });
         }
 
@@ -340,6 +346,10 @@ class sync {
         }
         $now = time();
         foreach (occurrence_mapper::cluster($unmapped, $gap) as $key => $cluster) {
+            if ($cutoff && $cluster->timestart < $cutoff) {
+                // Before the retention period: not made into a class again.
+                continue;
+            }
             if (isset($inferredbykey[$key])) {
                 $occurrence = $inferredbykey[$key];
                 unset($inferredbykey[$key]);
@@ -387,6 +397,11 @@ class sync {
                 continue;
             }
             $previous = $row->occurrenceid === null ? null : (int) $row->occurrenceid;
+            if ($previous === $target && $row->fingerprint === ($session->legacyfingerprint ?? null)) {
+                // Unchanged since an older version stored it: only the fingerprint is new.
+                $DB->set_field('local_zoomattendance_session', 'fingerprint', $session->fingerprint, ['id' => $row->id]);
+                continue;
+            }
             if ($row->fingerprint !== $session->fingerprint || $previous !== $target) {
                 $dirty[$previous] = true;
                 $dirty[$target] = true;
@@ -507,7 +522,7 @@ class sync {
         $adopted = [];
         foreach ($siblings as $sibling) {
             foreach (zoom_source::get_sessions($sibling) as $detailsid => $session) {
-                if ($cutoff && (int) $session->end_time < $cutoff) {
+                if ($cutoff && (int) $session->end_time < $cutoff - DAYSECS) {
                     continue;
                 }
                 if ($owner($detailsid, $session) === $zoomid) {
@@ -553,21 +568,31 @@ class sync {
         $windows = self::scheduled_windows($instance);
         if ($cutoff = settings::retention_cutoff()) {
             $windows = array_filter($windows, function ($window) use ($cutoff) {
-                return $window[1] >= $cutoff;
+                return $window[0] >= $cutoff;
             });
         }
         $existing = $DB->get_records(
             'local_zoomattendance_occ',
             ['zoomid' => $zoomid, 'source' => self::SOURCE_SCHEDULE, 'restored' => 0]
         );
-        // A class restored from a backup stands for its scheduled slot.
-        $restored = $DB->get_fieldset_select(
+        // A class restored from a backup stands for a scheduled slot at the same time.
+        $restored = $DB->get_records_select(
             'local_zoomattendance_occ',
-            'occurrencekey',
             'zoomid = :zoomid AND restored > 0',
-            ['zoomid' => $zoomid]
+            ['zoomid' => $zoomid],
+            '',
+            'id, timestart, timeend'
         );
-        $windows = array_diff_key($windows, array_flip($restored));
+        if ($restored) {
+            $windows = array_filter($windows, function ($window) use ($restored) {
+                foreach ($restored as $r) {
+                    if ($window[0] < (int) $r->timeend && $window[1] > (int) $r->timestart) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+        }
         $dirty = [];
 
         foreach ($existing as $occurrence) {
@@ -707,7 +732,8 @@ class sync {
         foreach ($sessions as $session) {
             [$start, $end] = occurrence_mapper::span($session);
             $window = self::pattern_window($instance, $start, $end, $earlymargin, $latemargin);
-            if (!$window) {
+            $cutoff = settings::retention_cutoff();
+            if (!$window || ($cutoff && $window[0] < $cutoff)) {
                 continue;
             }
             $key = 'p:' . $window[0];
@@ -991,7 +1017,7 @@ class sync {
     }
 
     /**
-     * Delete the classes that ended before the retention period, with their results and frozen
+     * Delete the classes that started before the retention period, with their results and frozen
      * lists. The sync then leaves their Zoom sessions out, so they are not created again.
      *
      * @return int Number of classes deleted.
@@ -1002,7 +1028,7 @@ class sync {
         if (!$cutoff) {
             return 0;
         }
-        $ids = $DB->get_fieldset_select('local_zoomattendance_occ', 'id', 'timeend < :cutoff', ['cutoff' => $cutoff]);
+        $ids = $DB->get_fieldset_select('local_zoomattendance_occ', 'id', 'timestart < :cutoff', ['cutoff' => $cutoff]);
         foreach (array_chunk($ids, 500) as $chunk) {
             roster::delete_for_occurrences($chunk);
             $DB->delete_records_list('local_zoomattendance_result', 'occurrenceid', $chunk);

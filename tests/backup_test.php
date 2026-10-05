@@ -118,10 +118,15 @@ final class backup_test extends \advanced_testcase {
         $this->assertSame(1, $DB->count_records('local_zoomattendance_idmap', ['courseid' => $newcourse->id]));
         $occurrence = $DB->get_record('local_zoomattendance_occ', ['zoomid' => $newcm->instance], '*', MUST_EXIST);
         $this->assertGreaterThan(0, (int) $occurrence->restored);
+        // Kept at the time it took place, under a key of its own.
+        $this->assertEquals($start, $occurrence->timestart);
+        $this->assertStringStartsWith('r:', $occurrence->occurrencekey);
         $this->assertSame(3, $DB->count_records('local_zoomattendance_roster', ['occurrenceid' => $occurrence->id]));
 
-        // The figures are kept, even after a sync of the new course, which has no Zoom data.
+        // The figures are kept, even after a sync of the new course, which has no Zoom data. The
+        // restored class stands for the scheduled one at the same time: no second class.
         sync::sync_all(null, true);
+        $this->assertSame(1, $DB->count_records('local_zoomattendance_occ', ['zoomid' => $newcm->instance]));
         $summary = course_summary::build($newcourse);
         $this->assertSame(status::PRESENT, $summary->cells[$amy->id][$occurrence->id]->status);
         $this->assertSame(status::ABSENT, $summary->cells[$ben->id][$occurrence->id]->status);
@@ -149,5 +154,30 @@ final class backup_test extends \advanced_testcase {
             ['zoomid' => $barecm->instance]
         ));
         $this->assertSame(0, $DB->count_records('local_zoomattendance_idmap', ['courseid' => $bare->id]));
+    }
+
+    public function test_restored_class_does_not_hide_a_class_at_another_time(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        set_config('defaultenabled', 1, 'local_zoomattendance');
+        $dg = $this->getDataGenerator();
+        $course = $dg->create_course();
+        $dg->create_and_enrol($course, 'student');
+        $start = time() - 3 * DAYSECS;
+        $cm = $dg->get_plugin_generator('local_zoomattendance')->create_zoom(['course' => $course->id,
+            'start_time' => $start, 'duration' => HOURSECS]);
+        \local_zoomattendance\local\sync::sync_all();
+        $newcourse = get_course($this->backup_and_restore($course, true));
+        $newcm = current(get_fast_modinfo($newcourse)->get_instances_of('zoom'));
+
+        // The copy's meeting is moved to next week (as when the course dates move).
+        $DB->set_field('zoom', 'start_time', time() + 7 * DAYSECS, ['id' => $newcm->instance]);
+        \local_zoomattendance\local\sync::sync_all(null, true);
+        $keys = $DB->get_fieldset_select('local_zoomattendance_occ', 'occurrencekey', 'zoomid = ?', [$newcm->instance]);
+        sort($keys);
+        $this->assertCount(2, $keys);
+        $this->assertStringStartsWith('r:', $keys[0]);
+        $this->assertSame('single', $keys[1]);
     }
 }

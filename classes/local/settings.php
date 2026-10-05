@@ -32,6 +32,8 @@ class settings {
     public const DENOMINATOR_SCHEDULED = 'scheduled';
     /** @var string Measure against the time the meeting actually ran inside the window. */
     public const DENOMINATOR_ACTUAL = 'actual';
+    /** @var int Shortest retention period, in days. */
+    public const RETENTION_MIN = 30;
 
     /** @var bool Whether attendance is tracked for the activity. */
     public $enabled;
@@ -160,13 +162,14 @@ class settings {
     }
 
     /**
-     * Classes ending before this time are no longer kept (the retention period).
+     * Classes starting before this time are no longer kept (the retention period).
      *
      * @return int 0 when every class is kept.
      */
     public static function retention_cutoff(): int {
         $days = (int) get_config('local_zoomattendance', 'retentiondays');
-        return $days > 0 ? time() - $days * DAYSECS : 0;
+        // At least 30 days, also when set outside the settings page.
+        return $days > 0 ? time() - max(self::RETENTION_MIN, $days) * DAYSECS : 0;
     }
 
     /**
