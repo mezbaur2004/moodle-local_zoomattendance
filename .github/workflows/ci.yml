@@ -33,7 +33,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Lowest supported: Moodle 4.1 LTS (D1), on the lowest PHP mod_zoom tests it with.
+          # Lowest supported: Moodle 4.1 LTS (D1) on its lowest PHP, 7.4, and on PHP 8.0.
+          - php: '7.4'
+            moodle-branch: 'MOODLE_401_STABLE'
+            database: 'pgsql'
           - php: '8.0'
             moodle-branch: 'MOODLE_401_STABLE'
             database: 'pgsql'
@@ -98,6 +101,10 @@ jobs:
       - name: PHPUnit tests
         if: ${{ !cancelled() && steps.install_ci.outcome == 'success' }}
         run: moodle-plugin-ci phpunit --fail-on-warning
+
+      - name: Behat features
+        if: ${{ !cancelled() && steps.install_ci.outcome == 'success' }}
+        run: moodle-plugin-ci behat --profile chrome
 
       - name: Mark cancelled jobs as failed.
         if: ${{ cancelled() }}

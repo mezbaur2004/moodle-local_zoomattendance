@@ -122,7 +122,7 @@ if ($download !== '') {
         $record['joinedoverall'] = $row->joined ? round($row->joined->percentage(), 1) : '';
         $records[] = array_merge(array_fill_keys(array_keys($filecolumns), ''), $record);
     }
-    \core\dataformat::download_data(
+    \local_zoomattendance\local\export::download(
         'teacherattendance-' . userdate($from, '%Y%m%d') . '-' . userdate($to, '%Y%m%d'),
         $download,
         $filecolumns,
@@ -159,6 +159,8 @@ if (!$rows) {
 } else {
     echo html_writer::tag('p', get_string('teachersoverview_help', 'local_zoomattendance'), ['class' => 'text-muted']);
     $table = new html_table();
+    $table->caption = $title;
+    $table->captionhide = true;
     $table->attributes['class'] = 'generaltable table-sm';
     $table->head = array_values($columns);
     foreach ($rows as $row) {

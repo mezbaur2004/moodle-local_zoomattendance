@@ -1159,6 +1159,52 @@ downloads).
   class of each course.
 * Only evaluated classes have a headcount; a class not held has no students to count.
 
+## C16. 0.4.0 production readiness
+
+From a full audit (security, data integrity, scale, upgrade, compatibility, app support).
+
+* **Frozen expected lists** (`local_zoomattendance_roster`, `occ.rosterfrozen`). Once a class ended
+  longer ago than the Not held delay, `roster::freeze_due()` (run by the sync) stores its expected
+  students and teachers. `attendance::get_candidates()` adds users of frozen lists to the live
+  ones, and `attendance::is_expected()` uses the frozen list for frozen classes and the enrolment
+  windows otherwise. So headcounts, Course overall and teacher figures of past classes no longer
+  change when users leave, are suspended or change role.
+* **Downloads** go through `export::download()`, which prefixes text starting with `=`, `+`, `-`,
+  `@`, a tab or a carriage return with an apostrophe.
+* **Exclusions** need a reason (`occ.excludereason`), shown in the class list, the teacher pages and
+  the logs. While teacher tracking is on, `manual::can_exclude()` also needs
+  `local/zoomattendance:excludetracked` (course level, manager), so teachers cannot exclude classes
+  they missed. Choosing responsible teachers takes the same right.
+* **Responsible teachers** (`local_zoomattendance_teacher`): when an activity has some,
+  `teacher_attendance::live_candidates()` is limited to them.
+* **Incremental sync.** `sync::sync_all()` keeps a watermark (config `syncstate`): the highest
+  participant and session ids, the time, and a hash of the settings that affect mapping. Hourly runs
+  visit only activities with new rows, changed calendar events, activity or setting changes,
+  classes marked for recompute or due to be frozen, and never-synced activities. A full pass runs
+  daily, after a settings change and on the first run; it also applies the retention period
+  (`sync::purge_expired()`), whose cutoff the sync also applies to sessions and schedule windows.
+* **Background recompute.** Identity links mark the course's classes and queue
+  `task\recompute`; a busy lock on window, exclusion or *Recompute now* also queues it.
+* **Caches.** `data_version` is a value in the `version` cache, changed by every sync of an
+  activity, manual change, settings save and by observers of enrolment, role, capability, group,
+  module and user changes. `course_summary::build()` and `teacher_summary::build()` are cached in
+  `summaries` under keys holding the data version, the viewer's activities and whether they see
+  identity fields; course modules are rebuilt from the course cache. The block's cache follows the
+  same version.
+* **Backup and restore** (`backup/moodle2`). Settings always; with user data, responsible teachers,
+  past classes with results and frozen lists, and identity links. mod_zoom does not back up its
+  reports, so restored classes are marked `restored` and keep their stored results: the sync leaves
+  them out of mapping, recompute and cleanup, and a scheduled slot they hold is not recreated.
+  `attendance::state()` counts a restored class as held when it had session time.
+* **Not held** needs the class to be known before it ended (`occ.timecreated < timeend`), so a
+  course copied without Zoom data does not mark every past class not held.
+* **Health checks** (`check\sync_status`, `check\zoom_reports`) through `local_zoomattendance_status_checks()`.
+* **Moodle app** (`db/mobile.php`, `output\mobile`): a course option for students and teachers.
+  Templates only interpolate data from `otherdata`, so participant-typed names cannot inject
+  markup or Angular expressions.
+* Maturity beta; CI adds Moodle 4.1 on PHP 7.4 and Behat (`tests/behat`, with steps that create
+  classes through the test generator, since mod_zoom creates meetings through the Zoom API).
+
 ## Decisions
 
 All open questions were resolved by adopting the proposed defaults.
@@ -1180,9 +1226,9 @@ All open questions were resolved by adopting the proposed defaults.
 | **D13** | Shared `meeting_id` | Detect and show a warning in the activity report. |
 | **D14** | Gradebook | Reports only; no grades written. |
 | **D15** | Margins | Early/late mapping margins 30 / 30 min and cluster gap 30 min, all admin settings. |
-| **D16** | Retention | Results always mirror the mod_zoom source; they are removed when the source rows go. |
+| **D16** | Retention | Results mirror the mod_zoom source and are removed when the source rows go. Since 0.4.0 a site retention period (off by default) can delete older classes (C16). |
 | **D17** | Teacher tracking | Capability `betrackedteacher` for editingteacher and teacher; enrolled teachers only; site switch `teachertracking`, default off (C2). |
-| **D18** | Several teachers | Every expected teacher is expected at every occurrence; no responsible-teacher setting (C2). |
+| **D18** | Several teachers | Every expected teacher is expected at every occurrence, unless an activity has responsible teachers (since 0.4.0, C16). |
 | **D19** | Teacher status | Site-level thresholds only: Present ≥ 90 %, Partial ≥ 10 % (50 % up to 0.3.0), grace 5 min, all configurable; always against the scheduled window; late-start and early-leave minutes shown (C3). |
 | **D20** | Classes not held | Count as Absent for expected teachers once mod_zoom's report watermark is 24 h (configurable) past the end, and only for scheduled occurrences ending after teacher tracking was switched on. Students unaffected (C4). |
 | **D21** | Visibility | Managers see all teachers (`viewteacherreports`); each teacher sees their own figures (`viewownteacher`); editing teachers also see non-editing teachers (`viewnoneditingteachers`, plain rule); other teachers are hidden in existing reports (C6). |
@@ -1193,3 +1239,8 @@ All open questions were resolved by adopting the proposed defaults.
 | **D26** | Regular meeting time | Since 0.3.2, a held class of a fixed-time recurring meeting without a calendar event is measured against the meeting's regular time and length on that day, not the span the room was open. |
 | **D27** | When joined | Since 0.3.4, teachers also get attendance over only the classes they joined, beside Attendance (C14). |
 | **D28** | Class headcount | Since 0.3.5, every class shows how many of its expected students were present, partial and absent, wherever classes are listed; since 0.3.6 its headline counts present + partial as present overall (C15). |
+| **D29** | Frozen expected lists | Since 0.4.0, past classes keep the users expected at them; the first sync after upgrading freezes them from the enrolments at that time (C16). |
+| **D30** | Exclusion policy | Since 0.4.0, exclusions need a reason, and while teacher tracking is on a separate capability (managers) (C16). |
+| **D31** | Scale | Since 0.4.0, incremental hourly sync with a daily full pass, background recompute for links, cached summaries with a data version, paged course report (C16). |
+| **D32** | Backup | Since 0.4.0, restored classes keep their stored figures; mod_zoom's reports are not in backups (C16). |
+| **D33** | Moodle app | Since 0.4.0, a course option in the app, data-only templates (C16). |

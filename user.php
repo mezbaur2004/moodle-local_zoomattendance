@@ -47,6 +47,10 @@ if ($ownview) {
     if (!groups_user_groups_visible($course, $userid)) {
         throw new required_capability_exception($coursecontext, 'moodle/site:accessallgroups', 'nopermissions', '');
     }
+    // Only users of this course: enrolled now, or on a frozen list of one of its classes.
+    if (!is_enrolled($coursecontext, $userid) && !\local_zoomattendance\local\roster::in_course((int) $course->id, $userid)) {
+        throw new moodle_exception('errornotenrolled', 'local_zoomattendance');
+    }
     // Teachers must not see other teachers' Zoom times, apart from editing teachers seeing non-editing ones.
     if (!\local_zoomattendance\local\teacher_access::can_view($coursecontext, $userid)) {
         throw new required_capability_exception($coursecontext, 'local/zoomattendance:viewteacherreports', 'nopermissions', '');
@@ -99,6 +103,8 @@ foreach (get_fast_modinfo($course)->get_instances_of('zoom') as $cm) {
     $results = $attendance->get_results(array_keys($occurrences), $user->id);
 
     $table = new html_table();
+    $table->caption = format_string($cm->name);
+    $table->captionhide = true;
     $table->head = [
         get_string('occurrence', 'local_zoomattendance'),
         get_string('firstjoin', 'local_zoomattendance'),

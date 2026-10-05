@@ -221,4 +221,38 @@ final class provider_test extends \core_privacy\tests\provider_testcase {
         provider::delete_data_for_all_users_in_context(\context_module::instance($this->cm->id));
         $this->assertSame(0, $DB->count_records('local_zoomattendance_result'));
     }
+
+    public function test_frozen_lists_and_responsible_teachers(): void {
+        global $DB;
+        $context = \context_module::instance($this->cm->id);
+        $occurrence = $DB->get_record('local_zoomattendance_occ', ['zoomid' => $this->cm->instance], '*', MUST_EXIST);
+        $DB->insert_record('local_zoomattendance_roster', (object) ['occurrenceid' => $occurrence->id,
+            'userid' => $this->user2->id, 'kind' => 'student', 'timecreated' => time()]);
+        $teacher = $this->getDataGenerator()->create_and_enrol($this->course, 'teacher');
+        $DB->insert_record('local_zoomattendance_teacher', (object) ['cmid' => $this->cm->id,
+            'userid' => $teacher->id, 'timecreated' => time(), 'usermodified' => $this->user1->id]);
+
+        // Each is found, for the expected user and the responsible teacher alike.
+        foreach ([$this->user2, $teacher] as $user) {
+            $contextids = array_map('intval', provider::get_contexts_for_userid($user->id)->get_contextids());
+            $this->assertContains((int) $context->id, $contextids);
+        }
+        $userlist = new userlist($context, 'local_zoomattendance');
+        provider::get_users_in_context($userlist);
+        $this->assertContains((int) $teacher->id, array_map('intval', $userlist->get_userids()));
+
+        // Exported with the user's data.
+        $this->export_context_data_for_user($this->user2->id, $context, 'local_zoomattendance');
+        $data = writer::with_context($context)->get_data([
+            get_string('pluginname', 'local_zoomattendance'),
+            get_string('expected', 'local_zoomattendance'),
+        ]);
+        $this->assertSame('student', $data->occurrences[0]->expectedas);
+
+        // Deleted with it.
+        $users = [$this->user2->id, $teacher->id, $this->user1->id];
+        provider::delete_data_for_users(new approved_userlist($context, 'local_zoomattendance', $users));
+        $this->assertFalse($DB->record_exists('local_zoomattendance_roster', ['userid' => $this->user2->id]));
+        $this->assertFalse($DB->record_exists('local_zoomattendance_teacher', ['userid' => $teacher->id]));
+    }
 }

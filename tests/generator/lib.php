@@ -74,7 +74,7 @@ class local_zoomattendance_generator extends component_generator_base {
             'visible' => $record['visible'] ?? 1,
             'visibleold' => 1,
             'groupmode' => $record['groupmode'] ?? NOGROUPS,
-            'added' => time(),
+            'added' => $record['added'] ?? time(),
         ];
         $cmid = add_course_module($cm);
         course_add_cm_to_section($courseid, $cmid, 0);

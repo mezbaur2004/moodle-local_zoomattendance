@@ -80,16 +80,20 @@ class teacher_attendance {
     /**
      * Whether an ended occurrence without sessions counts as not held.
      *
-     * Only scheduled occurrences have an expected slot. mod_zoom only moves its watermark once
-     * every meeting up to it was processed, so a failing report task marks nothing.
+     * Only scheduled occurrences have an expected slot, and only those known before they ended.
+     * mod_zoom only moves its watermark once every meeting up to it was processed, so a failing
+     * report task marks nothing.
      *
      * @param \stdClass $occurrence
      * @return bool
      */
     protected function is_not_held(\stdClass $occurrence): bool {
         $end = (int) $occurrence->timeend;
+        // A class first seen after it ended (a course copied without its Zoom data, or a meeting
+        // added afterwards) may have been held anyway: only one known in advance can be not held.
         return $occurrence->source === sync::SOURCE_SCHEDULE
             && $end >= $this->since
+            && (int) $occurrence->timecreated < $end
             && $this->watermark >= $end + $this->delay;
     }
 
@@ -104,13 +108,29 @@ class teacher_attendance {
     }
 
     /**
-     * Enrolled users holding betrackedteacher who can access the activity.
+     * Enrolled users holding betrackedteacher who can access the activity, limited to its
+     * responsible teachers when some are chosen, and the teachers on its frozen lists.
      *
      * @param int[]|null $userids Limit to these users.
      * @return \stdClass[] As attendance::get_candidates().
      */
     public function get_candidates(?array $userids = null): array {
-        return $this->attendance->get_candidates(0, $userids, 'local/zoomattendance:betrackedteacher');
+        $live = $this->live_candidates($userids);
+        return $live + $this->attendance->roster_candidates(roster::KIND_TEACHER, 0, $userids, $live);
+    }
+
+    /**
+     * The teachers expected now: see get_candidates(), without the frozen lists.
+     *
+     * @param int[]|null $userids Limit to these users.
+     * @return \stdClass[] As attendance::get_candidates().
+     */
+    public function live_candidates(?array $userids = null): array {
+        $responsible = responsible::get((int) $this->attendance->cm->id);
+        if ($responsible) {
+            $userids = $userids === null ? $responsible : array_values(array_intersect($userids, $responsible));
+        }
+        return $this->attendance->get_candidates(0, $userids, 'local/zoomattendance:betrackedteacher', false);
     }
 
     /**
@@ -133,7 +153,7 @@ class teacher_attendance {
             'rows' => [],
         ];
         foreach ($candidates as $userid => $candidate) {
-            if (!attendance::covers($candidate, $occurrence)) {
+            if (!$this->attendance->is_expected($candidate, $occurrence, roster::KIND_TEACHER)) {
                 continue;
             }
             $result = $state === attendance::STATE_EVALUATED ? ($results['u:' . $userid] ?? null) : null;

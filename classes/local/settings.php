@@ -160,6 +160,16 @@ class settings {
     }
 
     /**
+     * Classes ending before this time are no longer kept (the retention period).
+     *
+     * @return int 0 when every class is kept.
+     */
+    public static function retention_cutoff(): int {
+        $days = (int) get_config('local_zoomattendance', 'retentiondays');
+        return $days > 0 ? time() - $days * DAYSECS : 0;
+    }
+
+    /**
      * When teacher tracking was last switched on. Classes ending before it are never marked not
      * held. Set now if missing, for example when the setting was changed outside the settings page.
      *
@@ -181,6 +191,7 @@ class settings {
         if (self::teacher_tracking()) {
             set_config('teachertrackingsince', time(), 'local_zoomattendance');
         }
+        data_version::bump();
     }
 
     /**
@@ -190,10 +201,11 @@ class settings {
      */
     public static function margins(): array {
         $config = get_config('local_zoomattendance');
+        // Negative values make no sense; the settings page refuses them, but config can be set elsewhere.
         return [
-            (int) ($config->earlymarginmins ?? 30) * MINSECS,
-            (int) ($config->latemarginmins ?? 30) * MINSECS,
-            (int) ($config->clustergapmins ?? 30) * MINSECS,
+            max(0, (int) ($config->earlymarginmins ?? 30)) * MINSECS,
+            max(0, (int) ($config->latemarginmins ?? 30)) * MINSECS,
+            max(0, (int) ($config->clustergapmins ?? 30)) * MINSECS,
         ];
     }
 }

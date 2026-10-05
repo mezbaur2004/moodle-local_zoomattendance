@@ -43,11 +43,23 @@ $PAGE->set_heading(format_string($course->fullname));
 $PAGE->set_pagelayout('incourse');
 
 $record = $DB->get_record('local_zoomattendance_setting', ['cmid' => $cm->id]);
-$form = new activitysettings($url);
+// Choosing responsible teachers changes teacher attendance, so it takes the same rights as excluding classes.
+$canresponsible = \local_zoomattendance\local\manual::can_exclude($context);
+$teachers = [];
+foreach (get_enrolled_users($context, 'local/zoomattendance:betrackedteacher', 0, 'u.*', 'u.lastname, u.firstname') as $teacher) {
+    $teachers[$teacher->id] = fullname($teacher);
+}
+$responsible = \local_zoomattendance\local\responsible::get((int) $cm->id);
+$form = new activitysettings($url, [
+    'teachers' => $teachers,
+    'canresponsible' => $canresponsible,
+    'responsiblenames' => array_intersect_key($teachers, array_flip($responsible)),
+]);
 $current = ['id' => $cm->id];
 foreach (['enabled', 'presentpct', 'latepct', 'lategracemins', 'denominator'] as $field) {
     $current[$field] = ($record && $record->$field !== null) ? $record->$field : '';
 }
+$current['responsible'] = $responsible;
 $form->set_data($current);
 
 if ($form->is_cancelled()) {
@@ -64,6 +76,11 @@ if ($form->is_cancelled()) {
     } else {
         $DB->insert_record('local_zoomattendance_setting', $new);
     }
+    if ($canresponsible) {
+        $chosen = array_intersect(array_map('intval', (array) ($data->responsible ?? [])), array_keys($teachers));
+        \local_zoomattendance\local\responsible::set((int) $cm->id, $chosen);
+    }
+    \local_zoomattendance\local\data_version::bump();
 
     $message = get_string('changessaved');
     if (settings::for_cm($cm->id)->enabled) {

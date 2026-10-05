@@ -56,11 +56,46 @@ class course_summary {
         ?int $userid = null,
         string $capability = 'local/zoomattendance:viewreports'
     ): self {
-        $summary = new self();
+        $cms = [];
         foreach (get_fast_modinfo($course)->get_instances_of('zoom') as $cm) {
-            if (!$cm->uservisible || !has_capability($capability, \context_module::instance($cm->id))) {
-                continue;
+            if ($cm->uservisible && has_capability($capability, \context_module::instance($cm->id))) {
+                $cms[$cm->id] = $cm;
             }
+        }
+        // Cached per set of activities, group and user, for viewers who see the same identity fields.
+        $key = [
+            'course',
+            (int) $course->id,
+            $groupid,
+            $userid,
+            array_keys($cms),
+            has_capability('moodle/site:viewuseridentity', \context_course::instance($course->id)),
+        ];
+        $summary = data_version::cached($key, function () use ($cms, $groupid, $userid) {
+            $summary = self::compute($cms, $groupid, $userid);
+            foreach ($summary->activities as $activity) {
+                // Course modules are rebuilt from the course cache; only their ids are stored.
+                $activity->cm = (int) $activity->cm->id;
+            }
+            return $summary;
+        });
+        foreach ($summary->activities as $cmid => $activity) {
+            $activity->cm = $cms[$cmid];
+        }
+        return $summary;
+    }
+
+    /**
+     * Build the summary for some activities.
+     *
+     * @param \cm_info[] $cms
+     * @param int $groupid
+     * @param int|null $userid
+     * @return self
+     */
+    protected static function compute(array $cms, int $groupid, ?int $userid): self {
+        $summary = new self();
+        foreach ($cms as $cm) {
             $attendance = new attendance($cm);
             if (!$attendance->settings->enabled) {
                 continue;

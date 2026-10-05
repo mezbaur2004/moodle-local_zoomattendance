@@ -173,3 +173,15 @@ function local_zoomattendance_extend_navigation_category_settings(navigation_nod
         new pix_icon('i/report', '')
     );
 }
+
+/**
+ * Health checks for the site status report.
+ *
+ * @return \core\check\check[]
+ */
+function local_zoomattendance_status_checks(): array {
+    return [
+        new \local_zoomattendance\check\sync_status(),
+        new \local_zoomattendance\check\zoom_reports(),
+    ];
+}

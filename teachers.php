@@ -136,7 +136,7 @@ if ($download !== '' && $summary && $summary->classes) {
             $rows[] = $record;
         }
     }
-    \core\dataformat::download_data(
+    \local_zoomattendance\local\export::download(
         clean_filename($course->shortname . '-teacherattendance-' . userdate($from, '%Y%m%d') . '-' . userdate($to, '%Y%m%d')),
         $download,
         $columns,

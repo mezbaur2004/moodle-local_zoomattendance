@@ -52,6 +52,8 @@ class teacher_summary {
     public $stats = [];
     /** @var \stdClass[] occurrence id => user who excluded it, for excluded columns. */
     public $excludedby = [];
+    /** @var string[] occurrence id => why it was excluded, for excluded columns. */
+    public $excludereasons = [];
     /** @var bool[] userid => true when the teacher linked an identity to themself in the course. */
     public $selflinkers = [];
     /** @var bool[][] userid => occurrence id => true when the teacher's time there includes an identity they linked to themself. */
@@ -90,6 +92,53 @@ class teacher_summary {
      * @return self
      */
     public static function build(\stdClass $course, ?array $userids = null, int $from = 0, ?int $to = null): self {
+        $ids = $userids;
+        if ($ids !== null) {
+            $ids = array_map('intval', $ids);
+            sort($ids);
+        }
+        $key = [
+            'teachers',
+            (int) $course->id,
+            $ids,
+            $from,
+            $to,
+            has_capability('moodle/site:viewuseridentity', \context_course::instance($course->id)),
+            // Not held depends on the Zoom plugin's report watermark and on time, not on our data.
+            (int) get_config('zoom', 'last_call_made_at'),
+            intdiv(time(), HOURSECS),
+        ];
+        $summary = data_version::cached($key, function () use ($course, $userids, $from, $to) {
+            $summary = self::compute($course, $userids, $from, $to);
+            // Course modules are rebuilt from the course cache; only their ids are stored.
+            foreach ($summary->activities as $activity) {
+                $activity->cm = (int) $activity->cm->id;
+            }
+            foreach ($summary->classes as $class) {
+                $class->cm = (int) $class->cm->id;
+            }
+            return $summary;
+        });
+        $modinfo = get_fast_modinfo($course);
+        foreach ($summary->activities as $activity) {
+            $activity->cm = $modinfo->get_cm($activity->cm);
+        }
+        foreach ($summary->classes as $class) {
+            $class->cm = $modinfo->get_cm($class->cm);
+        }
+        return $summary;
+    }
+
+    /**
+     * Build the summary, see build().
+     *
+     * @param \stdClass $course
+     * @param int[]|null $userids
+     * @param int $from
+     * @param int|null $to
+     * @return self
+     */
+    protected static function compute(\stdClass $course, ?array $userids, int $from, ?int $to): self {
         global $DB;
         $summary = new self();
         // Identity keys each teacher linked to themself.
@@ -141,6 +190,9 @@ class teacher_summary {
                 $summary->classes[] = (object) ['cm' => $cm, 'occurrence' => $occurrence, 'state' => $state];
                 if ($excluded && (int) $occurrence->usermodified) {
                     $excluders[$occurrence->id] = (int) $occurrence->usermodified;
+                }
+                if ($excluded && !empty($occurrence->excludereason)) {
+                    $summary->excludereasons[$occurrence->id] = (string) $occurrence->excludereason;
                 }
                 foreach ($evaluation->rows as $id => $row) {
                     $summary->users[$id] = $row->user;

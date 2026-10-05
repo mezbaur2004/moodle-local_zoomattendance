@@ -88,6 +88,24 @@ final class teacher_attendance_test extends \advanced_testcase {
         return $teachers->evaluate($occurrence, $teachers->get_candidates(), $results);
     }
 
+    /**
+     * Pretend the classes were snapshotted before they took place, as the sync normally does.
+     */
+    protected function known_in_advance(): void {
+        global $DB;
+        $DB->set_field('local_zoomattendance_occ', 'timecreated', 1);
+    }
+
+    /**
+     * Run the queued background tasks, as cron would.
+     */
+    protected function run_adhoc_tasks(): void {
+        while ($task = \core\task\manager::get_next_adhoc_task(time())) {
+            $task->execute();
+            \core\task\manager::adhoc_task_complete($task);
+        }
+    }
+
     public function test_defaults_and_bounds(): void {
         $settings = settings::teacher();
         $this->assertTrue($settings->enabled);
@@ -156,9 +174,11 @@ final class teacher_attendance_test extends \advanced_testcase {
     }
 
     public function test_not_held_needs_the_watermark_and_delay(): void {
+        global $DB;
         $teacher = $this->getDataGenerator()->create_and_enrol($this->course, 'editingteacher');
         $cm = $this->create_class();
         sync::sync_all();
+        $this->known_in_advance();
         $end = $this->mins(60);
 
         // The Zoom plugin has not fetched reports far enough past the class yet.
@@ -180,6 +200,11 @@ final class teacher_attendance_test extends \advanced_testcase {
 
         // Classes from before teacher tracking was switched on are never marked not held.
         set_config('teachertrackingsince', $end + 1, 'local_zoomattendance');
+        $this->assertSame(teacher_attendance::STATE_AWAITING, $this->evaluate_first($cm)->state);
+
+        // A class first seen after it ended may have been held: never marked not held.
+        set_config('teachertrackingsince', 1, 'local_zoomattendance');
+        $DB->set_field('local_zoomattendance_occ', 'timecreated', $end + 1);
         $this->assertSame(teacher_attendance::STATE_AWAITING, $this->evaluate_first($cm)->state);
 
         // Students still see no session data, and nothing is counted for them.
@@ -221,10 +246,11 @@ final class teacher_attendance_test extends \advanced_testcase {
         // Excluded by the teacher.
         $excluded = $this->create_class(2 * 24 * 60);
         sync::sync_all();
+        $this->known_in_advance();
         set_config('last_call_made_at', time(), 'zoom');
         $this->setUser($teacher);
         $occurrence = $DB->get_record('local_zoomattendance_occ', ['zoomid' => $excluded->instance]);
-        manual::set_excluded($occurrence, true);
+        manual::set_excluded($occurrence, true, 'Public holiday');
 
         $summary = teacher_summary::build($this->course);
         $this->assertCount(3, $summary->activities);
@@ -246,6 +272,7 @@ final class teacher_attendance_test extends \advanced_testcase {
         $this->assertEqualsWithDelta(70.0, $summary->joined[$teacher->id]->percentage(), 0.01);
         $this->assertSame(0, $summary->stats[$other->id]['excludedbyself']);
         $this->assertSame((int) $teacher->id, (int) $summary->excludedby[$occurrence->id]->id);
+        $this->assertSame('Public holiday', $summary->excludereasons[$occurrence->id]);
 
         // A teacher's own view holds only their row; the date range limits the columns.
         $mine = teacher_summary::build($this->course, [(int) $teacher->id]);
@@ -264,6 +291,7 @@ final class teacher_attendance_test extends \advanced_testcase {
 
         $this->setUser($teacher);
         manual::link_identity((int) $this->course->id, 'z:' . sha1('e:tablet@example.org'), (int) $teacher->id, 'Tablet');
+        $this->run_adhoc_tasks();
         $summary = teacher_summary::build($this->course);
         $this->assertArrayHasKey($teacher->id, $summary->selflinkers);
         $this->assertSame(1, $summary->stats[$teacher->id]['selflinked']);
@@ -314,6 +342,7 @@ final class teacher_attendance_test extends \advanced_testcase {
         manual::link_identity((int) $this->course->id, 'z:' . sha1('e:tablet@example.org'), (int) $teacher->id, 'Tablet');
         $this->setUser($colleague);
         manual::link_identity((int) $this->course->id, 'z:' . sha1('e:phone@example.org'), (int) $teacher->id, 'Phone');
+        $this->run_adhoc_tasks();
 
         $summary = teacher_summary::build($this->course);
         $firstid = array_key_first($summary->activities[$first->id]->columns);
@@ -374,5 +403,30 @@ final class teacher_attendance_test extends \advanced_testcase {
         // Joined 20 minutes late and stayed 25 minutes: joined, so Partial rather than Absent.
         $this->assertSame(status::PARTIAL, $rows[$latelow->id]->status);
         $this->assertSame(status::ABSENT, $rows[$never->id]->status);
+    }
+
+    public function test_responsible_teachers_limit_who_is_expected(): void {
+        global $DB;
+        $dg = $this->getDataGenerator();
+        $alice = $dg->create_and_enrol($this->course, 'editingteacher');
+        $bob = $dg->create_and_enrol($this->course, 'teacher');
+        $cm = $this->create_class();
+        sync::sync_all();
+        // The class was a week ago, so the sync froze it; start from a class not frozen yet.
+        $DB->delete_records('local_zoomattendance_roster');
+        $DB->set_field('local_zoomattendance_occ', 'rosterfrozen', 0);
+        $this->assertEqualsCanonicalizing([$alice->id, $bob->id], array_keys($this->evaluate_first($cm)->rows));
+
+        // Only Bob teaches this activity.
+        responsible::set((int) $cm->id, [(int) $bob->id]);
+        $this->assertSame([(int) $bob->id], responsible::get((int) $cm->id));
+        $this->assertSame([(int) $bob->id], array_keys($this->evaluate_first($cm)->rows));
+        $this->assertSame([(int) $bob->id], array_keys(teacher_summary::build($this->course)->users));
+
+        // A class already frozen keeps the teachers expected at it.
+        responsible::set((int) $cm->id, []);
+        $this->assertSame(1, roster::freeze_due(current(source\zoom_source::get_instances(null, (int) $cm->instance))));
+        responsible::set((int) $cm->id, [(int) $alice->id]);
+        $this->assertEqualsCanonicalizing([$alice->id, $bob->id], array_keys($this->evaluate_first($cm)->rows));
     }
 }

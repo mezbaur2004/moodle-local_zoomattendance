@@ -42,7 +42,7 @@ class manual {
      * @param string $identitykey A z: identity key from a result row.
      * @param int $userid
      * @param string|null $displayname The Zoom name, kept for reference.
-     * @return bool False when the recompute could not run now (it will on the next sync).
+     * @return bool False: attendance is recomputed in the background.
      */
     public static function link_identity(int $courseid, string $identitykey, int $userid, ?string $displayname): bool {
         global $DB, $USER;
@@ -77,7 +77,7 @@ class manual {
      *
      * @param int $courseid
      * @param int $linkid local_zoomattendance_idmap id.
-     * @return bool False when the recompute could not run now.
+     * @return bool False: attendance is recomputed in the background.
      */
     public static function unlink_identity(int $courseid, int $linkid): bool {
         global $DB;
@@ -90,26 +90,52 @@ class manual {
     }
 
     /**
-     * Exclude an occurrence from the figures, or include it again. Cancelled occurrences, and
-     * those from before a Zoom data reset, stay as they are. Records who made the change.
+     * Whether the current user may exclude classes of an activity, or include them again.
+     *
+     * Excluded classes do not count against teachers, so while teacher attendance is tracked
+     * teachers cannot exclude their own missed classes: it takes excludetracked as well, given
+     * to managers by default.
+     *
+     * @param \context_module $context
+     * @return bool
+     */
+    public static function can_exclude(\context_module $context): bool {
+        if (!has_capability('local/zoomattendance:manage', $context)) {
+            return false;
+        }
+        return !settings::teacher_tracking() || has_capability('local/zoomattendance:excludetracked', $context);
+    }
+
+    /**
+     * Exclude an occurrence from the figures, with a reason, or include it again. Cancelled
+     * occurrences, and those from before a Zoom data reset, stay as they are. Records who made
+     * the change.
      *
      * @param \stdClass $occurrence
      * @param bool $excluded
+     * @param string $reason Why it is excluded; required to exclude.
      */
-    public static function set_excluded(\stdClass $occurrence, bool $excluded): void {
+    public static function set_excluded(\stdClass $occurrence, bool $excluded, string $reason = ''): void {
         global $DB, $USER;
         if (in_array((int) $occurrence->status, [sync::STATUS_CANCELLED, sync::STATUS_RESET], true)) {
             return;
         }
+        $reason = trim($reason);
+        if ($excluded && $reason === '') {
+            throw new \coding_exception('A reason is required to exclude a class.');
+        }
         $occurrence->status = $excluded ? sync::STATUS_EXCLUDED : sync::STATUS_ACTIVE;
+        $occurrence->excludereason = $excluded ? \core_text::substr($reason, 0, 255) : null;
         $occurrence->usermodified = (int) $USER->id;
         $occurrence->timemodified = time();
         $DB->update_record('local_zoomattendance_occ', (object) [
             'id' => $occurrence->id,
             'status' => $occurrence->status,
+            'excludereason' => $occurrence->excludereason,
             'usermodified' => $occurrence->usermodified,
             'timemodified' => $occurrence->timemodified,
         ]);
+        data_version::bump();
         $class = $excluded ? \local_zoomattendance\event\occurrence_excluded::class
             : \local_zoomattendance\event\occurrence_included::class;
         $class::create_from_occurrence($occurrence, self::get_cm($occurrence))->trigger();
@@ -189,6 +215,7 @@ class manual {
         }
         $event = \local_zoomattendance\event\window_reverted::create_from_occurrence($occurrence, self::get_cm($occurrence));
         $transaction = $DB->start_delegated_transaction();
+        roster::delete_for_occurrences([$occurrence->id]);
         $DB->delete_records('local_zoomattendance_result', ['occurrenceid' => $occurrence->id]);
         $DB->delete_records('local_zoomattendance_occ', ['id' => $occurrence->id]);
         $transaction->allow_commit();
@@ -197,23 +224,19 @@ class manual {
     }
 
     /**
-     * Mark every occurrence in the course for recompute, then resync the course.
+     * Mark every occurrence in the course for recompute, and recompute them in the background:
+     * an identity link applies to every Zoom activity of the course, which can take a while.
      *
      * @param int $courseid
-     * @return bool False when at least one activity was locked by another sync.
+     * @return bool False: the recompute is queued, not done yet.
      */
     protected static function recompute_course(int $courseid): bool {
         global $DB;
         $DB->execute("UPDATE {local_zoomattendance_occ}
                          SET timecomputed = 0
                        WHERE zoomid IN (SELECT id FROM {zoom} WHERE course = :courseid)", ['courseid' => $courseid]);
-        $done = true;
-        foreach (zoom_source::get_instances($courseid) as $instance) {
-            if ($DB->record_exists('local_zoomattendance_occ', ['zoomid' => $instance->id])) {
-                $done = sync::sync_instance($instance) && $done;
-            }
-        }
-        return $done;
+        \local_zoomattendance\task\recompute::queue($courseid);
+        return false;
     }
 
     /**
@@ -234,6 +257,11 @@ class manual {
      */
     protected static function sync_zoom(int $zoomid): bool {
         $instances = zoom_source::get_instances(null, $zoomid);
-        return $instances ? sync::sync_instance(reset($instances)) : true;
+        if (!$instances || sync::sync_instance(reset($instances))) {
+            return true;
+        }
+        // Another sync holds the activity: finish in the background.
+        \local_zoomattendance\task\recompute::queue(null, $zoomid);
+        return false;
     }
 }

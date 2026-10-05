@@ -68,7 +68,18 @@ class provider implements
         $collection->add_database_table('local_zoomattendance_occ', [
             'usermodified' => 'privacy:metadata:occ:usermodified',
             'timemodified' => 'privacy:metadata:occ:timemodified',
+            'excludereason' => 'privacy:metadata:occ:excludereason',
         ], 'privacy:metadata:occ');
+        $collection->add_database_table('local_zoomattendance_roster', [
+            'userid' => 'privacy:metadata:roster:userid',
+            'kind' => 'privacy:metadata:roster:kind',
+            'timecreated' => 'privacy:metadata:roster:timecreated',
+        ], 'privacy:metadata:roster');
+        $collection->add_database_table('local_zoomattendance_teacher', [
+            'userid' => 'privacy:metadata:teacher:userid',
+            'usermodified' => 'privacy:metadata:teacher:usermodified',
+            'timecreated' => 'privacy:metadata:teacher:timecreated',
+        ], 'privacy:metadata:teacher');
         return $collection;
     }
 
@@ -83,6 +94,29 @@ class provider implements
                 JOIN {course_modules} cm ON cm.instance = o.zoomid
                 JOIN {modules} m ON m.id = cm.module AND m.name = :modname
                 JOIN {context} ctx ON ctx.instanceid = cm.id AND ctx.contextlevel = :ctxlevel";
+    }
+
+    /**
+     * SQL joining frozen expected users to their module context.
+     *
+     * @return string
+     */
+    protected static function roster_context_join(): string {
+        return "FROM {local_zoomattendance_roster} ro
+                JOIN {local_zoomattendance_occ} o ON o.id = ro.occurrenceid
+                JOIN {course_modules} cm ON cm.instance = o.zoomid
+                JOIN {modules} m ON m.id = cm.module AND m.name = :modname
+                JOIN {context} ctx ON ctx.instanceid = cm.id AND ctx.contextlevel = :ctxlevel";
+    }
+
+    /**
+     * SQL joining responsible teachers to their module context.
+     *
+     * @return string
+     */
+    protected static function teacher_context_join(): string {
+        return "FROM {local_zoomattendance_teacher} t
+                JOIN {context} ctx ON ctx.instanceid = t.cmid AND ctx.contextlevel = :ctxlevel";
     }
 
     /**
@@ -120,6 +154,14 @@ class provider implements
             "SELECT ctx.id " . self::occurrence_context_join() . " WHERE o.usermodified = :userid",
             ['modname' => 'zoom', 'ctxlevel' => CONTEXT_MODULE, 'userid' => $userid]
         );
+        $contextlist->add_from_sql(
+            "SELECT ctx.id " . self::roster_context_join() . " WHERE ro.userid = :userid",
+            ['modname' => 'zoom', 'ctxlevel' => CONTEXT_MODULE, 'userid' => $userid]
+        );
+        $contextlist->add_from_sql(
+            "SELECT ctx.id " . self::teacher_context_join() . " WHERE t.userid = :userid OR t.usermodified = :usermodified",
+            ['ctxlevel' => CONTEXT_MODULE, 'userid' => $userid, 'usermodified' => $userid]
+        );
         return $contextlist;
     }
 
@@ -156,6 +198,18 @@ class provider implements
             "SELECT o.usermodified " . self::occurrence_context_join() . " WHERE ctx.id = :contextid AND o.usermodified > 0",
             ['modname' => 'zoom', 'ctxlevel' => CONTEXT_MODULE, 'contextid' => $context->id]
         );
+        $userlist->add_from_sql(
+            'userid',
+            "SELECT ro.userid " . self::roster_context_join() . " WHERE ctx.id = :contextid",
+            ['modname' => 'zoom', 'ctxlevel' => CONTEXT_MODULE, 'contextid' => $context->id]
+        );
+        foreach (['userid', 'usermodified'] as $field) {
+            $userlist->add_from_sql(
+                $field,
+                "SELECT t.$field " . self::teacher_context_join() . " WHERE ctx.id = :contextid AND t.$field > 0",
+                ['ctxlevel' => CONTEXT_MODULE, 'contextid' => $context->id]
+            );
+        }
     }
 
     /**
@@ -180,6 +234,7 @@ class provider implements
                      WHERE ctx.id = :contextid AND r.userid = :userid
                   ORDER BY o.timestart";
             self::export_changes($context, $userid);
+            self::export_expected($context, $userid);
             $rows = $DB->get_records_sql(
                 $sql,
                 ['modname' => 'zoom', 'ctxlevel' => CONTEXT_MODULE, 'contextid' => $context->id, 'userid' => $userid]
@@ -274,6 +329,40 @@ class provider implements
     }
 
     /**
+     * Export the classes a user was frozen as expected at, and whether they are a responsible
+     * teacher of the activity.
+     *
+     * @param \context_module $context
+     * @param int $userid
+     */
+    protected static function export_expected(\context_module $context, int $userid): void {
+        global $DB;
+        $rows = $DB->get_records_sql(
+            "SELECT ro.id, ro.kind, o.timestart, o.timeend
+             " . self::roster_context_join() . "
+              WHERE ctx.id = :contextid AND ro.userid = :userid
+           ORDER BY o.timestart",
+            ['modname' => 'zoom', 'ctxlevel' => CONTEXT_MODULE, 'contextid' => $context->id, 'userid' => $userid]
+        );
+        $responsible = $DB->record_exists('local_zoomattendance_teacher', ['cmid' => $context->instanceid, 'userid' => $userid]);
+        if (!$rows && !$responsible) {
+            return;
+        }
+        $data = [];
+        foreach ($rows as $row) {
+            $data[] = (object) [
+                'occurrencestart' => transform::datetime($row->timestart),
+                'occurrenceend' => transform::datetime($row->timeend),
+                'expectedas' => $row->kind,
+            ];
+        }
+        writer::with_context($context)->export_data(
+            [get_string('pluginname', 'local_zoomattendance'), get_string('expected', 'local_zoomattendance')],
+            (object) ['responsibleteacher' => transform::yesno($responsible), 'occurrences' => $data]
+        );
+    }
+
+    /**
      * Export the occurrence changes (exclusions, windows) a user made in a Zoom activity.
      *
      * @param \context_module $context
@@ -282,7 +371,7 @@ class provider implements
     protected static function export_changes(\context_module $context, int $userid): void {
         global $DB;
         $rows = $DB->get_records_sql(
-            "SELECT o.id, o.timestart, o.timeend, o.status, o.source, o.timemodified
+            "SELECT o.id, o.timestart, o.timeend, o.status, o.source, o.timemodified, o.excludereason
              " . self::occurrence_context_join() . "
               WHERE ctx.id = :contextid AND o.usermodified = :userid
            ORDER BY o.timestart",
@@ -297,6 +386,7 @@ class provider implements
                 'occurrencestart' => transform::datetime($row->timestart),
                 'occurrenceend' => transform::datetime($row->timeend),
                 'excluded' => transform::yesno((int) $row->status === \local_zoomattendance\local\sync::STATUS_EXCLUDED),
+                'excludereason' => $row->excludereason,
                 'source' => $row->source,
                 'changedon' => transform::datetime($row->timemodified),
             ];
@@ -323,6 +413,8 @@ class provider implements
         }
         $params = ['modname' => 'zoom', 'cmid' => $context->instanceid];
         $DB->delete_records_select('local_zoomattendance_result', 'occurrenceid IN (' . self::occurrences_sql() . ')', $params);
+        $DB->delete_records_select('local_zoomattendance_roster', 'occurrenceid IN (' . self::occurrences_sql() . ')', $params);
+        $DB->delete_records('local_zoomattendance_teacher', ['cmid' => $context->instanceid]);
         $DB->set_field_select('local_zoomattendance_occ', 'usermodified', 0, 'id IN (' . self::occurrences_sql() . ')', $params);
     }
 
@@ -349,11 +441,13 @@ class provider implements
                 continue;
             }
             $params = ['modname' => 'zoom', 'cmid' => $context->instanceid, 'userid' => $userid];
-            $DB->delete_records_select(
-                'local_zoomattendance_result',
-                'userid = :userid AND occurrenceid IN (' . self::occurrences_sql() . ')',
-                $params
-            );
+            foreach (['local_zoomattendance_result', 'local_zoomattendance_roster'] as $table) {
+                $select = 'userid = :userid AND occurrenceid IN (' . self::occurrences_sql() . ')';
+                $DB->delete_records_select($table, $select, $params);
+            }
+            $DB->delete_records('local_zoomattendance_teacher', ['cmid' => $context->instanceid, 'userid' => $userid]);
+            $conditions = ['cmid' => $context->instanceid, 'usermodified' => $userid];
+            $DB->set_field('local_zoomattendance_teacher', 'usermodified', 0, $conditions);
             $DB->set_field_select(
                 'local_zoomattendance_occ',
                 'usermodified',
@@ -394,12 +488,14 @@ class provider implements
         if (!$context instanceof \context_module) {
             return;
         }
+        $teacherparams = $params + ['cmid' => $context->instanceid];
+        $DB->delete_records_select('local_zoomattendance_teacher', "userid $insql AND cmid = :cmid", $teacherparams);
+        $select = "usermodified $insql AND cmid = :cmid";
+        $DB->set_field_select('local_zoomattendance_teacher', 'usermodified', 0, $select, $teacherparams);
         $params += ['modname' => 'zoom', 'cmid' => $context->instanceid];
-        $DB->delete_records_select(
-            'local_zoomattendance_result',
-            "userid $insql AND occurrenceid IN (" . self::occurrences_sql() . ')',
-            $params
-        );
+        foreach (['local_zoomattendance_result', 'local_zoomattendance_roster'] as $table) {
+            $DB->delete_records_select($table, "userid $insql AND occurrenceid IN (" . self::occurrences_sql() . ')', $params);
+        }
         $DB->set_field_select(
             'local_zoomattendance_occ',
             'usermodified',
