@@ -59,11 +59,14 @@ final class headcount_test extends \advanced_testcase {
         $this->setAdminUser();
         $summary = course_summary::build($course);
         $occurrenceid = array_key_first($summary->activities[$cm->id]->columns);
-        $expected = ['expected' => 3, status::PRESENT => 1, status::PARTIAL => 1, status::ABSENT => 1];
+        $expected = ['expected' => 3, 'overall' => 2, status::PRESENT => 1, status::PARTIAL => 1, status::ABSENT => 1];
         $this->assertSame([$occurrenceid => $expected], headcount::from_summary($summary));
 
         $this->setUser($coordinator);
         $this->assertSame([$occurrenceid => $expected], headcount::for_viewer($course));
+
+        // Present overall counts present and partial: the full and the half student.
+        $this->assertSame(2, headcount::from_summary($summary)[$occurrenceid]['overall']);
 
         // In separate groups, a teacher counts their own groups only, each student once.
         $DB->update_record('course', (object) ['id' => $course->id, 'groupmode' => SEPARATEGROUPS, 'groupmodeforce' => 1]);
@@ -78,7 +81,7 @@ final class headcount_test extends \advanced_testcase {
         rebuild_course_cache($course->id, true);
         $this->setUser($teacher);
         $this->assertSame(
-            [$occurrenceid => ['expected' => 2, status::PRESENT => 1, status::PARTIAL => 0, status::ABSENT => 1]],
+            [$occurrenceid => ['expected' => 2, 'overall' => 1, status::PRESENT => 1, status::PARTIAL => 0, status::ABSENT => 1]],
             headcount::for_viewer($course)
         );
 

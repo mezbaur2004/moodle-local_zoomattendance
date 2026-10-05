@@ -1143,7 +1143,10 @@ are left out; excluded, awaiting and reset classes are not counted in either fig
 ## C15. 0.3.5 class headcount
 
 Out of the students expected at a class, how many were present, partial and absent, shown as
-"15 of 18 present", a bar split into the three colours, and "2 partial · 1 absent".
+"17 of 18 present", a bar split into the three colours, and "15 present + 2 partial · 1 absent".
+Since 0.3.6, the headline is *present overall*: present plus partial, every student who
+attended (`overall` in the counts, and a *Students present overall* row or column in the
+downloads).
 
 * `headcount::from_summary()` counts the course summary's cells, so the headcount always agrees
   with the course report. `headcount::for_viewer()` builds the summary per group the viewer may
@@ -1189,4 +1192,4 @@ All open questions were resolved by adopting the proposed defaults.
 | **D25** | Reset | A reset with `reset_zoom_all` marks the course's past occurrences *Zoom data reset* (status 3), never counted, so they do not become Not held (C8, C11). |
 | **D26** | Regular meeting time | Since 0.3.2, a held class of a fixed-time recurring meeting without a calendar event is measured against the meeting's regular time and length on that day, not the span the room was open. |
 | **D27** | When joined | Since 0.3.4, teachers also get attendance over only the classes they joined, beside Attendance (C14). |
-| **D28** | Class headcount | Since 0.3.5, every class shows how many of its expected students were present, partial and absent, wherever classes are listed (C15). |
+| **D28** | Class headcount | Since 0.3.5, every class shows how many of its expected students were present, partial and absent, wherever classes are listed; since 0.3.6 its headline counts present + partial as present overall (C15). |

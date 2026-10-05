@@ -94,7 +94,7 @@ if ($download !== '' && $summary && $summary->classes) {
         'note' => get_string('note', 'local_zoomattendance'),
     ];
     if ($headcounts !== null) {
-        foreach (['expected', 'present', 'partial', 'absent'] as $key) {
+        foreach (['expected', 'overall', 'present', 'partial', 'absent'] as $key) {
             $columns['students' . $key] = get_string('students' . $key, 'local_zoomattendance');
         }
     }
@@ -129,7 +129,7 @@ if ($download !== '' && $summary && $summary->classes) {
             ];
             if ($headcounts !== null) {
                 $counts = $headcounts[$class->occurrence->id] ?? null;
-                foreach (['expected', 'present', 'partial', 'absent'] as $key) {
+                foreach (['expected', 'overall', 'present', 'partial', 'absent'] as $key) {
                     $record['students' . $key] = $counts ? $counts[$key] : '';
                 }
             }

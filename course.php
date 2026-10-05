@@ -75,7 +75,7 @@ if ($download !== '' && $summary && $summary->activities) {
     }
     // Then, per class, how many of the expected students were present, partial and absent.
     $counts = headcount::from_summary($summary);
-    foreach (['expected', 'present', 'partial', 'absent'] as $key) {
+    foreach (['expected', 'overall', 'present', 'partial', 'absent'] as $key) {
         $record = ['fullname' => get_string('students' . $key, 'local_zoomattendance')];
         foreach ($summary->activities as $activity) {
             foreach ($activity->columns as $occurrenceid => $occurrence) {

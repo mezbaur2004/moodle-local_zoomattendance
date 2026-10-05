@@ -25,7 +25,8 @@
 namespace local_zoomattendance\local;
 
 /**
- * Out of the students expected at a class, how many were present, partial and absent.
+ * Out of the students expected at a class, how many were present, partial and absent. Present
+ * overall counts both present and partial: every student who attended.
  *
  * Counts come from the course summary's cells, so they always agree with the course report.
  */
@@ -33,10 +34,26 @@ class headcount {
     /**
      * An empty count.
      *
-     * @return int[] With expected, present, partial and absent.
+     * @return int[] With expected, overall (present + partial), present, partial and absent.
      */
     public static function empty(): array {
-        return ['expected' => 0, status::PRESENT => 0, status::PARTIAL => 0, status::ABSENT => 0];
+        return ['expected' => 0, 'overall' => 0, status::PRESENT => 0, status::PARTIAL => 0, status::ABSENT => 0];
+    }
+
+    /**
+     * Counts as string placeholders.
+     *
+     * @param int[] $counts See empty().
+     * @return \stdClass With expected, overall, present, partial and absent.
+     */
+    public static function string_data(array $counts): \stdClass {
+        return (object) [
+            'expected' => $counts['expected'],
+            'overall' => $counts['overall'],
+            'present' => $counts[status::PRESENT],
+            'partial' => $counts[status::PARTIAL],
+            'absent' => $counts[status::ABSENT],
+        ];
     }
 
     /**
@@ -63,6 +80,10 @@ class headcount {
                 $counts[$occurrenceid]['expected']++;
                 if (isset($counts[$occurrenceid][$cell->status])) {
                     $counts[$occurrenceid][$cell->status]++;
+                }
+                // Present overall: everyone who attended, present or partial.
+                if ($cell->status === status::PRESENT || $cell->status === status::PARTIAL) {
+                    $counts[$occurrenceid]['overall']++;
                 }
             }
         }
