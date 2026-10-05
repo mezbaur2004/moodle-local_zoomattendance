@@ -80,7 +80,7 @@ if ($form->is_cancelled()) {
         $chosen = array_intersect(array_map('intval', (array) ($data->responsible ?? [])), array_keys($teachers));
         \local_zoomattendance\local\responsible::set((int) $cm->id, $chosen);
     }
-    \local_zoomattendance\local\data_version::bump();
+    \local_zoomattendance\local\data_version::bump_course((int) $course->id);
 
     $message = get_string('changessaved');
     if (settings::for_cm($cm->id)->enabled) {

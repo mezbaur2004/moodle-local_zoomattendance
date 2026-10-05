@@ -49,3 +49,12 @@ function local_zoomattendance_unfreeze_late_empty(): int {
     }
     return count($ids);
 }
+
+/**
+ * Restored classes are never recomputed, but 0.4.0 could mark them for recompute, which made
+ * every sync visit their activity again. Clear the mark.
+ */
+function local_zoomattendance_clear_restored_recompute(): void {
+    global $DB;
+    $DB->execute("UPDATE {local_zoomattendance_occ} SET timecomputed = restored WHERE restored > 0 AND timecomputed = 0");
+}

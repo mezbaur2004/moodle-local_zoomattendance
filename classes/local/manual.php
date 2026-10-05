@@ -169,10 +169,11 @@ class manual {
             'usermodified' => $occurrence->usermodified,
             'timemodified' => $occurrence->timemodified,
         ]);
-        data_version::bump();
+        $cm = self::get_cm($occurrence);
+        data_version::bump_course((int) $cm->course);
         $class = $excluded ? \local_zoomattendance\event\occurrence_excluded::class
             : \local_zoomattendance\event\occurrence_included::class;
-        $class::create_from_occurrence($occurrence, self::get_cm($occurrence))->trigger();
+        $class::create_from_occurrence($occurrence, $cm)->trigger();
     }
 
     /**
@@ -266,9 +267,11 @@ class manual {
      */
     protected static function recompute_course(int $courseid): bool {
         global $DB;
+        // Restored classes keep their figures: they are never recomputed.
         $DB->execute("UPDATE {local_zoomattendance_occ}
                          SET timecomputed = 0
-                       WHERE zoomid IN (SELECT id FROM {zoom} WHERE course = :courseid)", ['courseid' => $courseid]);
+                       WHERE restored = 0
+                         AND zoomid IN (SELECT id FROM {zoom} WHERE course = :courseid)", ['courseid' => $courseid]);
         \local_zoomattendance\task\recompute::queue($courseid);
         return false;
     }

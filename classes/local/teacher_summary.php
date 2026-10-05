@@ -104,10 +104,9 @@ class teacher_summary {
             $from,
             $to,
             has_capability('moodle/site:viewuseridentity', \context_course::instance($course->id)),
-            // Not held depends on the Zoom plugin's report watermark and on time, not on our data.
-            (int) get_config('zoom', 'last_call_made_at'),
-            intdiv(time(), HOURSECS),
         ];
+        // Not held also depends on the Zoom plugin's report watermark and on time.
+        $stamp = (int) get_config('zoom', 'last_call_made_at') . '/' . intdiv(time(), HOURSECS);
         $summary = data_version::cached($key, function () use ($course, $userids, $from, $to) {
             $summary = self::compute($course, $userids, $from, $to);
             // Course modules are rebuilt from the course cache; only their ids are stored.
@@ -118,7 +117,7 @@ class teacher_summary {
                 $class->cm = (int) $class->cm->id;
             }
             return $summary;
-        });
+        }, (int) $course->id, $stamp);
         $modinfo = get_fast_modinfo($course);
         foreach ($summary->activities as $activity) {
             $activity->cm = $modinfo->get_cm($activity->cm);

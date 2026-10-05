@@ -78,7 +78,7 @@ class course_summary {
                 $activity->cm = (int) $activity->cm->id;
             }
             return $summary;
-        });
+        }, (int) $course->id);
         foreach ($summary->activities as $cmid => $activity) {
             $activity->cm = $cms[$cmid];
         }

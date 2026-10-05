@@ -138,6 +138,7 @@ function xmldb_local_zoomattendance_upgrade($oldversion) {
         // 0.4.0 froze every past class on its first sync, from whoever could see the activity
         // that day. Repair the classes of hidden activities that got an empty list.
         local_zoomattendance_unfreeze_late_empty();
+        local_zoomattendance_clear_restored_recompute();
 
         upgrade_plugin_savepoint(true, 2026100700, 'local', 'zoomattendance');
     }

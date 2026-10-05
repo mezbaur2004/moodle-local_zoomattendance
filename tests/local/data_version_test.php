@@ -80,4 +80,73 @@ final class data_version_test extends \advanced_testcase {
         $this->assertNotSame($version, data_version::get());
         $this->assertSame([], course_summary::build($course)->activities);
     }
+
+    public function test_one_entry_per_summary_and_per_course_versions(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $dg = $this->getDataGenerator();
+        $one = $dg->create_course();
+        $two = $dg->create_course();
+        $builds = 0;
+        $build = function () use (&$builds) {
+            return ++$builds;
+        };
+
+        $this->assertSame(1, data_version::cached(['k'], $build, (int) $one->id));
+        $this->assertSame(1, data_version::cached(['k'], $build, (int) $one->id));
+        // Another course's change leaves this course's summaries alone.
+        data_version::bump_course((int) $two->id);
+        $this->assertSame(1, data_version::cached(['k'], $build, (int) $one->id));
+        // Its own change, or a site-wide one, rebuilds them, overwriting the one entry.
+        data_version::bump_course((int) $one->id);
+        $this->assertSame(2, data_version::cached(['k'], $build, (int) $one->id));
+        data_version::bump();
+        $this->assertSame(3, data_version::cached(['k'], $build, (int) $one->id));
+        $entry = \cache::make('local_zoomattendance', 'summaries')->get(sha1(json_encode(['k'])));
+        $this->assertSame(3, $entry['value']);
+        // Something else the value depends on, such as the hour.
+        $this->assertSame(4, data_version::cached(['k'], $build, (int) $one->id, 'next hour'));
+
+        // The version for caches spanning courses changes with any of them.
+        $any = data_version::get();
+        data_version::bump_course((int) $two->id);
+        $this->assertNotSame($any, data_version::get());
+
+        // A profile update changes only the user's courses.
+        global $CFG;
+        require_once($CFG->dirroot . '/user/lib.php');
+        $user = $dg->create_and_enrol($one, 'student');
+        $before = [data_version::for_course((int) $one->id), data_version::for_course((int) $two->id)];
+        $user->firstname = 'Renamed';
+        user_update_user($user, false);
+        $this->assertNotSame($before[0], data_version::for_course((int) $one->id));
+        $this->assertSame($before[1], data_version::for_course((int) $two->id));
+    }
+
+    public function test_a_sync_that_changes_nothing_keeps_the_version(): void {
+        $this->resetAfterTest();
+        set_config('defaultenabled', 1, 'local_zoomattendance');
+        $dg = $this->getDataGenerator();
+        $course = $dg->create_course();
+        $student = $dg->create_and_enrol($course, 'student');
+        $start = time() - DAYSECS;
+        $cm = $dg->get_plugin_generator('local_zoomattendance')->create_zoom(['course' => $course->id,
+            'start_time' => $start, 'duration' => HOURSECS]);
+        sync::sync_all();
+        $instances = source\zoom_source::get_instances(null, (int) $cm->instance);
+        $version = data_version::for_course((int) $course->id);
+        sync::sync_instance(reset($instances));
+        $this->assertSame($version, data_version::for_course((int) $course->id));
+
+        // New Zoom data does change it.
+        $session = $dg->get_plugin_generator('local_zoomattendance')->create_session($cm, $start, $start + HOURSECS);
+        $dg->get_plugin_generator('local_zoomattendance')->create_participant(
+            $session,
+            $start,
+            $start + HOURSECS,
+            ['userid' => $student->id]
+        );
+        sync::sync_instance(reset($instances));
+        $this->assertNotSame($version, data_version::for_course((int) $course->id));
+    }
 }

@@ -25,6 +25,7 @@
 namespace local_zoomattendance;
 
 use local_zoomattendance\local\course_summary;
+use local_zoomattendance\local\manual;
 use local_zoomattendance\local\responsible;
 use local_zoomattendance\local\status;
 use local_zoomattendance\local\sync;
@@ -124,6 +125,18 @@ final class backup_test extends \advanced_testcase {
         $summary = course_summary::build($newcourse);
         $this->assertSame(status::PRESENT, $summary->cells[$amy->id][$occurrence->id]->status);
         $this->assertSame(status::ABSENT, $summary->cells[$ben->id][$occurrence->id]->status);
+
+        // A new identity link in the new course recomputes its classes, but not the restored one:
+        // it would stay marked, and every sync would visit the activity again.
+        $this->setAdminUser();
+        $DB->delete_records('local_zoomattendance_idmap', ['courseid' => $newcourse->id]);
+        manual::link_identity((int) $newcourse->id, 'z:' . sha1('e:other@example.org'), (int) $ben->id, 'Other');
+        $this->assertNotEquals(0, $DB->get_field('local_zoomattendance_occ', 'timecomputed', ['id' => $occurrence->id]));
+        // One marked before this fix is cleared by the next sync.
+        $DB->set_field('local_zoomattendance_occ', 'timecomputed', 0, ['id' => $occurrence->id]);
+        sync::sync_all(null, true);
+        $this->assertNotEquals(0, $DB->get_field('local_zoomattendance_occ', 'timecomputed', ['id' => $occurrence->id]));
+        $this->assertSame(status::PRESENT, course_summary::build($newcourse)->cells[$amy->id][$occurrence->id]->status);
 
         // Without user data: only the settings.
         $bare = get_course($this->backup_and_restore($course, false));

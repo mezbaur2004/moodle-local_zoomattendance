@@ -178,7 +178,7 @@ class sync {
                 JOIN {course_modules} cm ON cm.id = t.cmid
                WHERE t.timecreated > :since", ['since' => $since]],
             // Classes a teacher change left for recompute, and classes now due to be frozen.
-            ["SELECT DISTINCT zoomid FROM {local_zoomattendance_occ} WHERE timecomputed = 0", []],
+            ["SELECT DISTINCT zoomid FROM {local_zoomattendance_occ} WHERE timecomputed = 0 AND restored = 0", []],
             ["SELECT DISTINCT zoomid
                 FROM {local_zoomattendance_occ}
                WHERE rosterfrozen = 0 AND restored = 0 AND status <> :cancelled AND timeend <= :now",
@@ -273,12 +273,16 @@ class sync {
         if (!$lock) {
             return false;
         }
+        global $DB;
+        $writes = $DB->perf_get_writes();
         try {
             self::do_sync($instance, $recomputeall);
         } finally {
             $lock->release();
-            // Cached summaries may show the old figures.
-            data_version::bump();
+            // Cached summaries of the course may show the old figures, if anything changed.
+            if ($DB->perf_get_writes() !== $writes) {
+                data_version::bump_course((int) $instance->course);
+            }
         }
         return true;
     }
@@ -421,6 +425,10 @@ class sync {
         $idmap = self::get_idmap((int) $instance->course);
         foreach ($occurrences as $occurrence) {
             if ((int) $occurrence->restored) {
+                // Never recomputed: a restored class marked for recompute keeps its figures.
+                if ((int) $occurrence->timecomputed === 0) {
+                    $DB->set_field('local_zoomattendance_occ', 'timecomputed', $now, ['id' => $occurrence->id]);
+                }
                 continue;
             }
             // A zero timecomputed marks an occurrence a teacher change left for recompute.
