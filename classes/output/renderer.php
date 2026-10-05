@@ -184,8 +184,9 @@ class renderer extends \plugin_renderer_base {
     }
 
     /**
-     * Out of the students expected at a class, how many were present, partial and absent: the
-     * present count, a bar split into the three colours, and the partial and absent counts.
+     * Out of the students expected at a class, how many were present overall (present and
+     * partial) and absent: the overall count, a bar split into the three colours, and the
+     * present, partial and absent counts.
      *
      * @param array|null $counts From headcount, with expected, present, partial and absent.
      * @param bool $large The full sentence, for a class's own page.
@@ -195,12 +196,7 @@ class renderer extends \plugin_renderer_base {
         if (empty($counts['expected'])) {
             return '–';
         }
-        $a = (object) [
-            'expected' => $counts['expected'],
-            'present' => $counts[status::PRESENT],
-            'partial' => $counts[status::PARTIAL],
-            'absent' => $counts[status::ABSENT],
-        ];
+        $a = headcount::string_data($counts);
         $segments = '';
         foreach ([status::PRESENT => 'success', status::PARTIAL => 'warning', status::ABSENT => 'danger'] as $state => $variant) {
             if ($counts[$state]) {
@@ -684,7 +680,11 @@ class renderer extends \plugin_renderer_base {
     public function occurrence_detail(attendance $attendance, \stdClass $evaluation, bool $canlink = false): string {
         $output = $this->heading(get_string('expectedusers', 'local_zoomattendance'), 4);
         if ($evaluation->state === attendance::STATE_EVALUATED) {
-            $output .= $this->headcount(['expected' => count($evaluation->expected)] + $evaluation->counts, true);
+            $counts = $evaluation->counts;
+            $output .= $this->headcount([
+                'expected' => count($evaluation->expected),
+                'overall' => $counts[status::PRESENT] + $counts[status::PARTIAL],
+            ] + $counts, true);
         }
         $output .= $this->user_table($attendance, $evaluation->expected, true);
         if ($evaluation->notexpected) {
