@@ -104,10 +104,18 @@ class manual {
      * @return bool
      */
     public static function can_link_to(\context_course $context, int $userid): bool {
-        if (!settings::teacher_tracking() || has_capability('local/zoomattendance:excludetracked', $context)) {
-            return true;
-        }
-        return !has_capability('local/zoomattendance:betrackedteacher', $context, $userid);
+        return self::can_link_to_teachers($context)
+            || !has_capability('local/zoomattendance:betrackedteacher', $context, $userid);
+    }
+
+    /**
+     * Whether the current user may link Zoom identities to tracked teachers, see can_link_to().
+     *
+     * @param \context_course $context
+     * @return bool
+     */
+    public static function can_link_to_teachers(\context_course $context): bool {
+        return !settings::teacher_tracking() || has_capability('local/zoomattendance:excludetracked', $context);
     }
 
     /**

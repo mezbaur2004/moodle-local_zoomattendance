@@ -85,11 +85,15 @@ if ($key !== '') {
     foreach ($identity as $field) {
         $fields .= ', u.' . $field;
     }
+    // Tracked teachers are left out for viewers who may not change teacher figures (manual::can_link_to()).
+    $notlinkable = [];
+    if (!manual::can_link_to_teachers($coursecontext)) {
+        $notlinkable = get_users_by_capability($coursecontext, 'local/zoomattendance:betrackedteacher', 'u.id');
+    }
     foreach (['local/zoomattendance:betracked', 'local/zoomattendance:betrackedteacher'] as $capability) {
         $enrolled = get_enrolled_users($coursecontext, $capability, 0, 'u.id' . $fields, 'u.lastname, u.firstname');
         foreach ($enrolled as $user) {
-            if (!manual::can_link_to($coursecontext, (int) $user->id)) {
-                // Tracked teachers, for viewers who may not change teacher figures.
+            if (isset($notlinkable[$user->id])) {
                 continue;
             }
             $extra = array_filter(array_map(function ($field) use ($user) {

@@ -76,10 +76,11 @@ teacher without access to all groups counts their own groups only. Large courses
 per page; the download has everyone.
 
 **Past classes keep who was expected.** Until a class is over, the expected students and teachers
-come from the current enrolments. Once it ended longer ago than the *Not held after* delay (24
-hours by default), the sync freezes that list, so unenrolling or suspending a user, or changing
-their role, no longer rewrites past attendance or headcounts. When upgrading, the first sync
-freezes every past class from the enrolments at that time.
+come from the current enrolments. The first sync after it ends freezes that list, with the groups
+each user was in, so unenrolling or suspending a user, or changing their role or group, no longer
+rewrites past attendance or headcounts. A class the sync only reaches long after it ended (the
+first sync after an upgrade, or after cron was down) is not frozen while its activity is hidden:
+it keeps following the enrolments, so hiding an old activity never drops its students.
 
 A participant is *partial* when they joined but are not present: they stayed below the
 present threshold (for example joined on time and left early) or joined after the late
@@ -92,8 +93,9 @@ full pass once a day and after a settings change. Teachers can also press *Recom
 Reports are cached and rebuilt as soon as attendance, enrolments, roles, groups or settings
 change.
 
-*Keep classes for (days)*, under *Data retention*, deletes classes older than that from Zoom
-attendance (0, the default, keeps them all). The Zoom plugin's own data is not touched.
+*Keep classes for (days)*, under *Data retention*, deletes classes that started longer ago than
+that from Zoom attendance (0, the default, keeps them all; otherwise at least 30 days). Deleted
+classes cannot be brought back. The Zoom plugin's own data is not touched.
 
 *Site administration > Reports > System status* shows two checks: that the attendance sync has run
 in the last three hours, and that the Zoom plugin's *Get meeting reports* task is enabled and has
@@ -114,7 +116,7 @@ verified behaviour of mod_zoom it relies on.
 | `local/zoomattendance:viewteacherreports` | manager | Every teacher's attendance |
 | `local/zoomattendance:viewownteacher` | teacher, editing teacher | Own teacher attendance |
 | `local/zoomattendance:viewnoneditingteachers` | editing teacher | Non-editing teachers' attendance |
-| `local/zoomattendance:excludetracked` | manager | Excluding classes and choosing responsible teachers while teacher attendance is tracked |
+| `local/zoomattendance:excludetracked` | manager | While teacher attendance is tracked: excluding classes, setting class windows, linking Zoom identities to teachers and choosing responsible teachers |
 
 ## Correcting attendance
 
@@ -132,6 +134,10 @@ automatic matching cannot:
   real class time. Time is clipped to it and
   percentages are measured against it. *Revert* returns to the automatic window. Scheduled
   windows come from the Zoom activity and cannot be edited here.
+
+While teacher attendance is tracked, setting a window and linking a Zoom identity to a teacher
+(or removing such a link) also need *Exclude classes while teacher attendance is tracked*: a window
+decides how late a teacher joined, and a link adds someone's Zoom time to a teacher's.
 
 A window change recomputes attendance immediately. An identity link applies to every Zoom
 activity of the course, so it is recomputed in the background within a few minutes.
@@ -159,10 +165,19 @@ Zoom classes.
 - **Late starts and early leaves:** each cell shows how many minutes late the teacher joined
   and how many minutes early they left.
 - **Classes that were not held** count as absent for their teachers once the Zoom plugin has
-  fetched meeting reports at least 24 hours (configurable) past the class. If the Zoom
-  plugin's report task is failing, nothing is marked not held. Only classes with a fixed
-  schedule can be detected, and never classes from before teacher tracking was switched on.
-  Students are not affected.
+  fetched meeting reports at least 24 hours (configurable) past the class **and** the host has a
+  later Zoom session on record. The Zoom plugin's report position alone is not proof: it also
+  moves past meetings it skipped (hosts it does not fetch, hosts left out when Zoom's rate limit
+  is hit, reports not ready yet). If the report task is failing, nothing is marked not held.
+  Only classes with a fixed schedule can be detected, never classes from before teacher tracking
+  was switched on or from a period it was switched off. Students are not affected.
+- **No participant report:** when Zoom recorded the meeting but the Zoom plugin got no
+  participants for it, the class shows *No participant report* and counts for nobody, instead of
+  everyone absent.
+- **Activities sharing one Zoom meeting** (course copies that kept the meeting): the Zoom plugin
+  files every session under one of them. Each session counts for the activity whose schedule it
+  matches. A class whose session another such activity has shows *Held in another activity* and
+  is not counted as not held. Giving each activity its own meeting avoids this.
 - **Integrity:** while teacher tracking is on, every Zoom activity is synced, even where
   attendance tracking is turned off for it. Managers see who excluded a class, and
   classes where a teacher's time includes a Zoom participant they linked to themself are
@@ -187,8 +202,8 @@ classes they do take, which matters where several teachers share a course's clas
 Each class shows a slim bar in its status colour, and each overall figure a bar with a line at
 the Present threshold: green from Present, orange from Partial, red below. Each page has a
 *What the statuses mean* legend. Besides Present, Partial and Absent, a class
-can show *Not held* (counts as absent), *Excluded*, *Awaiting Zoom report* or *Zoom data reset*
-(none of these three counts).
+can show *Not held* (counts as absent), *Excluded*, *Awaiting Zoom report*, *No participant
+report*, *Held in another activity* or *Zoom data reset* (none of these counts).
 
 Managers see every teacher. Editing teachers see their own figures and the non-editing
 teachers' in their courses, but not other editing teachers. Non-editing teachers see only their
@@ -207,7 +222,8 @@ attendance is tracked, choosing them takes the same right as excluding classes.
 Per-activity settings always go with a Zoom activity. With user data, its past classes go too,
 with their figures and the users expected at them, plus responsible teachers and the course's
 identity links. The Zoom plugin does not back up its meeting reports, so restored classes keep
-the figures from the backup. A copy without user data starts with no attendance; its past
+the figures from the backup, at the times they took place (moving the course dates does not move
+them). A copy without user data starts with no attendance; its past
 classes are never marked *Not held* for teachers, because nothing shows whether they were held.
 
 ## Moodle app

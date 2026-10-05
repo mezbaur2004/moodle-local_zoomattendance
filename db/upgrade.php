@@ -139,6 +139,9 @@ function xmldb_local_zoomattendance_upgrade($oldversion) {
         // that day. Repair the classes of hidden activities that got an empty list.
         local_zoomattendance_unfreeze_late_empty();
         local_zoomattendance_clear_restored_recompute();
+        // The next sync is a full pass, so every activity gets the new rules (activities sharing
+        // a Zoom meeting, retention), not only those whose Zoom data changes.
+        unset_config('syncstate', 'local_zoomattendance');
 
         upgrade_plugin_savepoint(true, 2026100700, 'local', 'zoomattendance');
     }

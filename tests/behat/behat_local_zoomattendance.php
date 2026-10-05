@@ -60,6 +60,30 @@ class behat_local_zoomattendance extends behat_base {
     }
 
     /**
+     * Create a recurring Zoom activity without a fixed time (its classes are inferred from the
+     * sessions) with one past class and the minutes each user attended it, then sync.
+     *
+     * @Given /^the Zoom activity "([^"]*)" in course "([^"]*)" without a fixed time had a class (\d+) days ago attended by:$/
+     * @param string $name
+     * @param string $course Course shortname.
+     * @param int $days
+     * @param TableNode $table With user and minutes columns.
+     */
+    public function zoom_inferred_class_attended_by(string $name, string $course, int $days, TableNode $table): void {
+        global $DB;
+        $courseid = $DB->get_field('course', 'id', ['shortname' => $course], MUST_EXIST);
+        $generator = testing_util::get_data_generator()->get_plugin_generator('local_zoomattendance');
+        $start = time() - $days * DAYSECS;
+        $cm = $generator->create_zoom(['course' => $courseid, 'name' => $name, 'recurring' => 1, 'recurrence_type' => 0]);
+        $session = $generator->create_session($cm, $start, $start + HOURSECS);
+        foreach ($table->getHash() as $row) {
+            $userid = $DB->get_field('user', 'id', ['username' => $row['user']], MUST_EXIST);
+            $generator->create_participant($session, $start, $start + (int) $row['minutes'] * MINSECS, ['userid' => $userid]);
+        }
+        \local_zoomattendance\local\sync::sync_all();
+    }
+
+    /**
      * Open a course's Zoom attendance page.
      *
      * @Given /^I am on the Zoom attendance page of course "(?P<course>[^"]*)"$/

@@ -51,3 +51,18 @@ Feature: Zoom attendance reports
     Then I should see "Present"
     And I should see "100.0%"
     And I should not see "Ben Student"
+
+  Scenario: While teacher attendance is tracked, only managers set class windows
+    Given the following config values are set as admin:
+      | teachertracking | 1 | local_zoomattendance |
+    And the Zoom activity "Tutorial" in course "C1" without a fixed time had a class 3 days ago attended by:
+      | user     | minutes |
+      | teacher1 | 30      |
+    When I log in as "teacher1"
+    And I am on the Zoom attendance report of "Tutorial"
+    Then I should see "Inferred from sessions"
+    And I should not see "Set window"
+    And I log out
+    And I log in as "admin"
+    And I am on the Zoom attendance report of "Tutorial"
+    And I should see "Set window"
