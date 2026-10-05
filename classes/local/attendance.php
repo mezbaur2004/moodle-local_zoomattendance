@@ -45,6 +45,11 @@ class attendance {
     public const STATE_EXCLUDED = 'excluded';
     /** @var string The course's Zoom data was reset after it. */
     public const STATE_RESET = 'reset';
+    /**
+     * @var string Zoom recorded a session but no participants for it: the Zoom plugin could not
+     * fetch its participant report. Nobody can be marked present or absent from that.
+     */
+    public const STATE_NOREPORT = 'noreport';
 
     /** @var \cm_info */
     public $cm;
@@ -58,6 +63,8 @@ class attendance {
     protected $occurrences;
     /** @var int[] occurrence id => number of mapped sessions. */
     protected $sessioncounts;
+    /** @var int[] occurrence id => number of stored results (participants). */
+    protected $resultcounts;
     /** @var \stdClass[]|null Users holding betrackedteacher in the module, keyed by id. */
     protected $teacherids;
     /** @var array[] roster kind => occurrence id => [userid => true], see roster(). */
@@ -96,6 +103,14 @@ class attendance {
                GROUP BY occurrenceid",
                 ['zoomid' => $this->instance->id]
             );
+            $this->resultcounts = $DB->get_records_sql_menu(
+                "SELECT r.occurrenceid, COUNT(1)
+                   FROM {local_zoomattendance_result} r
+                   JOIN {local_zoomattendance_occ} o ON o.id = r.occurrenceid
+                  WHERE o.zoomid = :zoomid
+               GROUP BY r.occurrenceid",
+                ['zoomid' => $this->instance->id]
+            );
         }
         return $this->occurrences;
     }
@@ -109,6 +124,17 @@ class attendance {
     public function session_count(\stdClass $occurrence): int {
         $this->get_occurrences();
         return (int) ($this->sessioncounts[$occurrence->id] ?? 0);
+    }
+
+    /**
+     * Number of participants stored for an occurrence.
+     *
+     * @param \stdClass $occurrence
+     * @return int
+     */
+    public function result_count(\stdClass $occurrence): int {
+        $this->get_occurrences();
+        return (int) ($this->resultcounts[$occurrence->id] ?? 0);
     }
 
     /**
@@ -129,11 +155,14 @@ class attendance {
         }
         if ((int) ($occurrence->restored ?? 0)) {
             // Restored from a backup without its Zoom sessions: held when it had session time.
-            if ((int) $occurrence->actualsecs > 0) {
-                return self::STATE_EVALUATED;
-            }
-        } else if ($this->session_count($occurrence) > 0) {
-            return self::STATE_EVALUATED;
+            $held = (int) $occurrence->actualsecs > 0;
+        } else {
+            $held = $this->session_count($occurrence) > 0;
+        }
+        if ($held) {
+            // Anyone who joined, the host included, leaves a participant row. None at all means
+            // the participant report is missing, not that everyone was absent.
+            return $this->result_count($occurrence) > 0 ? self::STATE_EVALUATED : self::STATE_NOREPORT;
         }
         return (int) $occurrence->timeend > time() ? self::STATE_UPCOMING : self::STATE_NODATA;
     }
@@ -201,14 +230,24 @@ class attendance {
     public function roster_candidates(string $kind, int $groupid = 0, ?array $userids = null, array $have = []): array {
         $ids = [];
         foreach ($this->roster($kind) as $users) {
-            $ids += $users;
+            $ids += array_fill_keys(array_keys($users), true);
         }
         $ids = array_diff_key($ids, $have);
         if ($userids !== null) {
             $ids = array_intersect_key($ids, array_flip($userids));
         }
         if ($ids && $groupid) {
-            $ids = array_intersect_key($ids, groups_get_members($groupid, 'u.id'));
+            // Users in the group now, or in it when one of the classes was frozen.
+            $members = groups_get_members($groupid, 'u.id');
+            $ingroup = [];
+            foreach ($this->roster($kind) as $users) {
+                foreach ($users as $userid => $groups) {
+                    if (isset($members[$userid]) || strpos((string) $groups, ",$groupid,") !== false) {
+                        $ingroup[$userid] = true;
+                    }
+                }
+            }
+            $ids = array_intersect_key($ids, $ingroup);
         }
         $users = $this->load_users(array_keys($ids));
         foreach ($users as $user) {
@@ -221,7 +260,7 @@ class attendance {
      * Frozen expected users of this activity.
      *
      * @param string $kind A roster::KIND_* constant.
-     * @return array occurrence id => [userid => true]
+     * @return array occurrence id => [userid => groups then], see roster::load()
      */
     protected function roster(string $kind): array {
         if (!isset($this->rosters[$kind])) {
@@ -234,14 +273,26 @@ class attendance {
      * Whether a candidate was expected at an occurrence: on its frozen list once it has one,
      * otherwise when their enrolment covered it.
      *
+     * In a group view, a user on a frozen list counts for the groups they were in then.
+     *
      * @param \stdClass $candidate From get_candidates().
      * @param \stdClass $occurrence
      * @param string $kind A roster::KIND_* constant.
+     * @param int $groupid Current group (0 for all).
      * @return bool
      */
-    public function is_expected(\stdClass $candidate, \stdClass $occurrence, string $kind = roster::KIND_STUDENT): bool {
+    public function is_expected(
+        \stdClass $candidate,
+        \stdClass $occurrence,
+        string $kind = roster::KIND_STUDENT,
+        int $groupid = 0
+    ): bool {
         if ((int) ($occurrence->rosterfrozen ?? 0) > 0) {
-            return isset($this->roster($kind)[(int) $occurrence->id][(int) $candidate->id]);
+            $roster = $this->roster($kind)[(int) $occurrence->id] ?? [];
+            if (!isset($roster[(int) $candidate->id])) {
+                return false;
+            }
+            return !$groupid || strpos($roster[(int) $candidate->id], ",$groupid,") !== false;
         }
         return self::covers($candidate, $occurrence);
     }
@@ -382,7 +433,7 @@ class attendance {
 
         $expectedids = [];
         foreach ($candidates as $userid => $candidate) {
-            if (!$this->is_expected($candidate, $occurrence)) {
+            if (!$this->is_expected($candidate, $occurrence, roster::KIND_STUDENT, $groupid)) {
                 continue;
             }
             $expectedids[$userid] = true;

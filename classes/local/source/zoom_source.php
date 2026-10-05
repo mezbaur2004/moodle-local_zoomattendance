@@ -48,7 +48,7 @@ class zoom_source {
             $where[] = 'z.id = :zoomid';
             $params['zoomid'] = $zoomid;
         }
-        $sql = "SELECT z.id, z.course, z.name, z.meeting_id, z.start_time, z.duration, z.timezone, z.recurring,
+        $sql = "SELECT z.id, z.course, z.name, z.meeting_id, z.host_id, z.start_time, z.duration, z.timezone, z.recurring,
                        z.recurrence_type, cm.id AS cmid,
                        s.id AS s_id, s.enabled AS s_enabled, s.presentpct AS s_presentpct, s.latepct AS s_latepct,
                        s.lategracemins AS s_lategracemins, s.denominator AS s_denominator
@@ -59,6 +59,20 @@ class zoom_source {
                  WHERE " . implode(' AND ', $where) . "
               ORDER BY z.id";
         return $DB->get_records_sql($sql, $params);
+    }
+
+    /**
+     * Zoom instances by id, see get_instances().
+     *
+     * @param int[] $zoomids
+     * @return \stdClass[] Keyed by zoom id.
+     */
+    public static function get_instances_by_ids(array $zoomids): array {
+        $instances = [];
+        foreach ($zoomids as $zoomid) {
+            $instances += self::get_instances(null, (int) $zoomid);
+        }
+        return $instances;
     }
 
     /**
@@ -159,6 +173,67 @@ class zoom_source {
             'zoom',
             'meeting_id = :mid AND id <> :id',
             ['mid' => $instance->meeting_id, 'id' => $instance->id]
+        );
+    }
+
+    /**
+     * Ids of the other activities that use the same Zoom meeting.
+     *
+     * @param \stdClass $instance A get_instances() record.
+     * @return int[]
+     */
+    public static function sibling_ids(\stdClass $instance): array {
+        global $DB;
+        if (empty($instance->meeting_id)) {
+            return [];
+        }
+        return array_map('intval', $DB->get_fieldset_select(
+            'zoom',
+            'id',
+            'meeting_id = :mid AND id <> :id',
+            ['mid' => $instance->meeting_id, 'id' => $instance->id]
+        ));
+    }
+
+    /**
+     * Start and end of every session the Zoom plugin filed under another activity that uses
+     * the same Zoom meeting.
+     *
+     * @param \stdClass $instance A get_instances() record.
+     * @return int[][] [start, end] pairs.
+     */
+    public static function sibling_session_spans(\stdClass $instance): array {
+        global $DB;
+        $ids = self::sibling_ids($instance);
+        if (!$ids) {
+            return [];
+        }
+        [$insql, $params] = $DB->get_in_or_equal($ids, SQL_PARAMS_NAMED);
+        $spans = [];
+        foreach ($DB->get_records_select('zoom_meeting_details', "zoomid $insql", $params, '', 'id, start_time, end_time') as $d) {
+            $spans[] = [(int) $d->start_time, (int) $d->end_time];
+        }
+        return $spans;
+    }
+
+    /**
+     * Start of the latest session of any activity hosted by a Zoom user: how far the Zoom
+     * plugin has fetched that host's reports.
+     *
+     * @param string $hostid zoom.host_id.
+     * @return int 0 when the host has no session on record.
+     */
+    public static function host_latest_session(string $hostid): int {
+        global $DB;
+        if ($hostid === '') {
+            return 0;
+        }
+        return (int) $DB->get_field_sql(
+            "SELECT MAX(d.start_time)
+               FROM {zoom_meeting_details} d
+               JOIN {zoom} z ON z.id = d.zoomid
+              WHERE z.host_id = :hostid",
+            ['hostid' => $hostid]
         );
     }
 }

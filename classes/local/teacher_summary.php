@@ -328,6 +328,8 @@ class teacher_summary {
             attendance::STATE_EXCLUDED,
             attendance::STATE_RESET,
             teacher_attendance::STATE_AWAITING,
+            teacher_attendance::STATE_ELSEWHERE,
+            attendance::STATE_NOREPORT,
         ], true);
     }
 }

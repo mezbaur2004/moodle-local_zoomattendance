@@ -29,7 +29,8 @@
  * @return bool
  */
 function xmldb_local_zoomattendance_upgrade($oldversion) {
-    global $DB;
+    global $CFG, $DB;
+    require_once($CFG->dirroot . '/local/zoomattendance/db/upgradelib.php');
     $dbman = $DB->get_manager();
 
     if ($oldversion < 2026100100) {
@@ -124,6 +125,21 @@ function xmldb_local_zoomattendance_upgrade($oldversion) {
         }
 
         upgrade_plugin_savepoint(true, 2026100602, 'local', 'zoomattendance');
+    }
+
+    if ($oldversion < 2026100700) {
+        // The groups each user on a frozen list was in, for group views of past classes.
+        $table = new xmldb_table('local_zoomattendance_roster');
+        $field = new xmldb_field('groupids', XMLDB_TYPE_TEXT, null, null, null, null, null, 'kind');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        // 0.4.0 froze every past class on its first sync, from whoever could see the activity
+        // that day. Repair the classes of hidden activities that got an empty list.
+        local_zoomattendance_unfreeze_late_empty();
+
+        upgrade_plugin_savepoint(true, 2026100700, 'local', 'zoomattendance');
     }
 
     return true;

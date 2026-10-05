@@ -81,13 +81,38 @@ class sync {
      * @return int Number of instances synced.
      */
     public static function sync_all(?int $courseid = null, bool $full = false): int {
-        $count = 0;
         $all = settings::teacher_tracking();
         $only = null;
         $marks = null;
         if ($courseid === null) {
             [$full, $marks, $only] = self::changed_instances($full);
         }
+        roster::start_run();
+        try {
+            $count = self::sync_instances($courseid, $only, $all);
+        } finally {
+            roster::end_run();
+        }
+        self::delete_orphans($full);
+        if ($courseid === null) {
+            if ($full && self::purge_expired()) {
+                data_version::bump();
+            }
+            self::save_state($marks, $full);
+        }
+        return $count;
+    }
+
+    /**
+     * Sync the instances of a pass.
+     *
+     * @param int|null $courseid
+     * @param bool[]|null $only zoom id => true, null for all.
+     * @param bool $all Sync instances whose tracking is switched off too.
+     * @return int Number of instances synced.
+     */
+    protected static function sync_instances(?int $courseid, ?array $only, bool $all): int {
+        $count = 0;
         foreach (zoom_source::get_instances($courseid) as $instance) {
             if ($only !== null && !isset($only[(int) $instance->id])) {
                 continue;
@@ -102,13 +127,6 @@ class sync {
             } catch (\Throwable $e) {
                 mtrace("local_zoomattendance: zoom {$instance->id} failed: " . $e->getMessage());
             }
-        }
-        self::delete_orphans();
-        if ($courseid === null) {
-            if ($full && self::purge_expired()) {
-                data_version::bump();
-            }
-            self::save_state($marks, $full);
         }
         return $count;
     }
@@ -163,8 +181,8 @@ class sync {
             ["SELECT DISTINCT zoomid FROM {local_zoomattendance_occ} WHERE timecomputed = 0", []],
             ["SELECT DISTINCT zoomid
                 FROM {local_zoomattendance_occ}
-               WHERE rosterfrozen = 0 AND restored = 0 AND status <> :cancelled AND timeend <= :cutoff",
-                ['cancelled' => self::STATUS_CANCELLED, 'cutoff' => $now - settings::teacher_notheld_delay()]],
+               WHERE rosterfrozen = 0 AND restored = 0 AND status <> :cancelled AND timeend <= :now",
+                ['cancelled' => self::STATUS_CANCELLED, 'now' => $now]],
             // Instances never synced.
             ["SELECT z.id
                 FROM {zoom} z
@@ -174,6 +192,20 @@ class sync {
         $only = [];
         foreach ($queries as [$sql, $params]) {
             foreach ($DB->get_fieldset_sql($sql, $params) as $zoomid) {
+                $only[(int) $zoomid] = true;
+            }
+        }
+        // A session can belong to another activity using the same Zoom meeting (share_sessions()).
+        foreach (array_chunk(array_keys($only), 500) as $chunk) {
+            [$insql, $params] = $DB->get_in_or_equal($chunk, SQL_PARAMS_NAMED);
+            $shared = $DB->get_fieldset_sql(
+                "SELECT DISTINCT z2.id
+                   FROM {zoom} z1
+                   JOIN {zoom} z2 ON z2.meeting_id = z1.meeting_id AND z2.id <> z1.id
+                  WHERE z1.id $insql AND z1.meeting_id > 0",
+                $params
+            );
+            foreach ($shared as $zoomid) {
                 $only[(int) $zoomid] = true;
             }
         }
@@ -279,6 +311,12 @@ class sync {
             $sessions = array_filter($sessions, function ($session) use ($cutoff) {
                 return (int) $session->end_time >= $cutoff;
             });
+        }
+
+        // Activities sharing one Zoom meeting (course copies): the Zoom plugin files every session
+        // under one of them. Each session goes to the activity whose schedule it matches.
+        if ($siblings = zoom_source::sibling_ids($instance)) {
+            $sessions = self::share_sessions($instance, $sessions, $siblings, $occurrences, $earlymargin, $latemargin);
         }
 
         // Map sessions: fixed occurrences first, then the meeting's regular time for held classes
@@ -393,6 +431,102 @@ class sync {
 
         // Classes that are over keep the users expected at them.
         roster::freeze_due($instance, $now);
+    }
+
+    /**
+     * The sessions an activity that shares its Zoom meeting with others should count.
+     *
+     * A session that matches the schedule of exactly one of the activities belongs to that one,
+     * whichever the Zoom plugin filed it under. Any other session stays where it was filed.
+     * Taking over a session another activity has recorded marks that activity's class for
+     * recompute, so its figures drop the session on its next sync.
+     *
+     * @param \stdClass $instance
+     * @param \stdClass[] $sessions This activity's own sessions, keyed by details id.
+     * @param int[] $siblings Ids of the other activities using the same meeting.
+     * @param \stdClass[] $occurrences This activity's occurrences (not restored).
+     * @param int $earlymargin
+     * @param int $latemargin
+     * @return \stdClass[] The sessions to count, keyed by details id.
+     */
+    protected static function share_sessions(
+        \stdClass $instance,
+        array $sessions,
+        array $siblings,
+        array $occurrences,
+        int $earlymargin,
+        int $latemargin
+    ): array {
+        global $DB;
+        $zoomid = (int) $instance->id;
+        $isfixed = function ($o) {
+            return in_array($o->source, [self::SOURCE_SCHEDULE, self::SOURCE_MANUAL], true)
+                && (int) $o->status !== self::STATUS_CANCELLED && !(int) ($o->restored ?? 0);
+        };
+        $fixed = [$zoomid => array_filter($occurrences, $isfixed)];
+        [$insql, $params] = $DB->get_in_or_equal($siblings, SQL_PARAMS_NAMED);
+        foreach ($DB->get_records_select('local_zoomattendance_occ', "zoomid $insql", $params) as $o) {
+            if ($isfixed($o)) {
+                $fixed[(int) $o->zoomid][$o->id] = $o;
+            }
+        }
+        // The schedules as the Zoom plugin has them now, for activities not synced yet.
+        foreach (zoom_source::get_instances_by_ids($siblings) as $sibling) {
+            foreach (self::scheduled_windows($sibling) as $key => [$start, $end]) {
+                $id = 'w:' . $key;
+                $fixed[(int) $sibling->id][$id] = (object) ['id' => $id, 'timestart' => $start, 'timeend' => $end];
+            }
+        }
+        // The activity a session belongs to, or null when it matches no schedule or several.
+        $owner = function ($detailsid, $session) use ($fixed, $earlymargin, $latemargin) {
+            $matches = [];
+            foreach ($fixed as $id => $list) {
+                if ($list && occurrence_mapper::map_to_scheduled([$detailsid => $session], $list, $earlymargin, $latemargin)) {
+                    $matches[] = $id;
+                }
+            }
+            return count($matches) === 1 ? $matches[0] : null;
+        };
+
+        $result = [];
+        foreach ($sessions as $detailsid => $session) {
+            $belongs = $owner($detailsid, $session);
+            if ($belongs === null || $belongs === $zoomid) {
+                $result[$detailsid] = $session;
+            }
+        }
+        $cutoff = settings::retention_cutoff();
+        $adopted = [];
+        foreach ($siblings as $sibling) {
+            foreach (zoom_source::get_sessions($sibling) as $detailsid => $session) {
+                if ($cutoff && (int) $session->end_time < $cutoff) {
+                    continue;
+                }
+                if ($owner($detailsid, $session) === $zoomid) {
+                    $result[$detailsid] = $session;
+                    $adopted[] = (int) $detailsid;
+                }
+            }
+        }
+        if ($adopted) {
+            // The activity that recorded these sessions recomputes the classes they leave.
+            foreach (array_chunk($adopted, 500) as $chunk) {
+                [$insql, $params] = $DB->get_in_or_equal($chunk, SQL_PARAMS_NAMED);
+                $params['zoomid'] = $zoomid;
+                $rows = $DB->get_records_select(
+                    'local_zoomattendance_session',
+                    "detailsid $insql AND zoomid <> :zoomid",
+                    $params
+                );
+                foreach ($rows as $row) {
+                    if ($row->occurrenceid !== null) {
+                        $DB->set_field('local_zoomattendance_occ', 'timecomputed', 0, ['id' => $row->occurrenceid]);
+                    }
+                    $DB->delete_records('local_zoomattendance_session', ['id' => $row->id]);
+                }
+            }
+        }
+        return $result;
     }
 
     /**
@@ -877,19 +1011,41 @@ class sync {
 
     /**
      * Remove data whose zoom instance or course module no longer exists.
+     *
+     * Classes a restore is still writing have no activity yet (zoom id 0, see
+     * restore_local_zoomattendance_plugin): they are left alone for two days, so a restore that
+     * overlaps a sync keeps them, and only a restore that failed half way leaves them to clean up.
+     *
+     * @param bool $full Also remove results and frozen lists whose class is gone.
      */
-    public static function delete_orphans(): void {
+    public static function delete_orphans(bool $full = false): void {
         global $DB;
+        $params = ['restoring' => time() - 2 * DAYSECS];
         $zoomids = $DB->get_fieldset_sql("SELECT DISTINCT o.zoomid
                                             FROM {local_zoomattendance_occ} o
                                        LEFT JOIN {zoom} z ON z.id = o.zoomid
-                                           WHERE z.id IS NULL
+                                           WHERE z.id IS NULL AND (o.zoomid <> 0 OR o.restored < :restoring)
                                            UNION
                                           SELECT DISTINCT s.zoomid
                                             FROM {local_zoomattendance_session} s
                                        LEFT JOIN {zoom} z ON z.id = s.zoomid
-                                           WHERE z.id IS NULL");
-        self::delete_for_zoomids($zoomids);
+                                           WHERE z.id IS NULL", $params);
+        if (in_array(0, array_map('intval', $zoomids), true)) {
+            // Only the stale part of an unfinished restore.
+            $zoomids = array_diff(array_map('intval', $zoomids), [0]);
+            $stale = $DB->get_fieldset_select(
+                'local_zoomattendance_occ',
+                'id',
+                'zoomid = 0 AND restored < :restoring',
+                $params
+            );
+            foreach (array_chunk($stale, 500) as $chunk) {
+                roster::delete_for_occurrences($chunk);
+                $DB->delete_records_list('local_zoomattendance_result', 'occurrenceid', $chunk);
+                $DB->delete_records_list('local_zoomattendance_occ', 'id', $chunk);
+            }
+        }
+        self::delete_for_zoomids(array_values($zoomids));
         $DB->delete_records_select(
             'local_zoomattendance_setting',
             'cmid NOT IN (SELECT id FROM {course_modules})'
@@ -902,5 +1058,10 @@ class sync {
             'local_zoomattendance_idmap',
             'courseid NOT IN (SELECT id FROM {course})'
         );
+        if ($full) {
+            foreach (['local_zoomattendance_result', 'local_zoomattendance_roster'] as $table) {
+                $DB->delete_records_select($table, 'occurrenceid NOT IN (SELECT id FROM {local_zoomattendance_occ})');
+            }
+        }
     }
 }

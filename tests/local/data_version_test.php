@@ -44,7 +44,8 @@ final class data_version_test extends \advanced_testcase {
         $course = $dg->create_course();
         $amy = $dg->create_and_enrol($course, 'student');
         $teacher = $dg->create_and_enrol($course, 'teacher');
-        $start = time() - DAYSECS;
+        // A class still running: its expected students follow the enrolments.
+        $start = time() - 30 * MINSECS;
         $cm = $generator->create_zoom(['course' => $course->id, 'start_time' => $start, 'duration' => HOURSECS]);
         $session = $generator->create_session($cm, $start, $start + HOURSECS);
         $generator->create_participant($session, $start, $start + HOURSECS, ['userid' => $amy->id]);

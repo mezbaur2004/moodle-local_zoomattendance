@@ -181,10 +181,18 @@ class restore_local_zoomattendance_plugin extends restore_local_plugin {
         if (!$userid) {
             return;
         }
+        // Groups the user was in, as restored (groups that were not restored are left out).
+        $groupids = [];
+        foreach (explode(',', (string) ($data->groupids ?? '')) as $groupid) {
+            if ((int) $groupid && ($new = $this->get_mappingid('group', (int) $groupid))) {
+                $groupids[] = (int) $new;
+            }
+        }
         $DB->insert_record('local_zoomattendance_roster', (object) [
             'occurrenceid' => $this->get_new_parentid('local_zoomattendance_occurrence'),
             'userid' => $userid,
             'kind' => $data->kind,
+            'groupids' => $groupids ? ',' . implode(',', $groupids) . ',' : '',
             'timecreated' => (int) $data->timecreated,
         ]);
     }

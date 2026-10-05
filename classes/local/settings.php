@@ -185,13 +185,53 @@ class settings {
     }
 
     /**
-     * Settings page callback: remember when teacher tracking was switched on.
+     * Settings page callback: remember when teacher tracking was first switched on, and the
+     * periods it was switched off since. Classes in such a period are never marked not held;
+     * switching tracking back on does not wipe the not-held classes from before.
      */
     public static function teacher_tracking_updated(): void {
+        $now = time();
         if (self::teacher_tracking()) {
-            set_config('teachertrackingsince', time(), 'local_zoomattendance');
+            if (!(int) get_config('local_zoomattendance', 'teachertrackingsince')) {
+                set_config('teachertrackingsince', $now, 'local_zoomattendance');
+            }
+            $off = (int) get_config('local_zoomattendance', 'teachertrackingoffsince');
+            if ($off) {
+                $pauses = self::teacher_tracking_pauses();
+                $pauses[] = [$off, $now];
+                set_config('teachertrackingpauses', json_encode($pauses), 'local_zoomattendance');
+                unset_config('teachertrackingoffsince', 'local_zoomattendance');
+            }
+        } else if ((int) get_config('local_zoomattendance', 'teachertrackingsince')) {
+            set_config('teachertrackingoffsince', $now, 'local_zoomattendance');
         }
         data_version::bump();
+    }
+
+    /**
+     * Periods teacher tracking was switched off after it was first switched on.
+     *
+     * @return int[][] [from, to] pairs.
+     */
+    public static function teacher_tracking_pauses(): array {
+        $pauses = json_decode((string) get_config('local_zoomattendance', 'teachertrackingpauses'), true);
+        return is_array($pauses) ? $pauses : [];
+    }
+
+    /**
+     * Whether teacher tracking was on at a moment: not in a period it was switched off.
+     *
+     * @param int $time
+     * @return bool
+     */
+    public static function teacher_tracked_at(int $time): bool {
+        foreach (self::teacher_tracking_pauses() as [$from, $to]) {
+            if ($time >= (int) $from && $time <= (int) $to) {
+                return false;
+            }
+        }
+        $off = (int) get_config('local_zoomattendance', 'teachertrackingoffsince');
+        return !$off || $time < $off;
     }
 
     /**

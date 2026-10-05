@@ -49,9 +49,11 @@ class manual {
         if (!self::is_unmatched_key($identitykey)) {
             throw new \coding_exception('Only unmatched (z:) identities can be linked.');
         }
-        if (!is_enrolled(\context_course::instance($courseid), $userid)) {
+        $context = \context_course::instance($courseid);
+        if (!is_enrolled($context, $userid)) {
             throw new \moodle_exception('errornotenrolled', 'local_zoomattendance');
         }
+        self::require_link_to($context, $userid);
         $record = $DB->get_record('local_zoomattendance_idmap', ['courseid' => $courseid, 'identitykey' => $identitykey]);
         if ($record) {
             $record->userid = $userid;
@@ -83,6 +85,7 @@ class manual {
         global $DB;
         $link = $DB->get_record('local_zoomattendance_idmap', ['id' => $linkid, 'courseid' => $courseid]);
         if ($link) {
+            self::require_link_to(\context_course::instance($courseid), (int) $link->userid);
             $DB->delete_records('local_zoomattendance_idmap', ['id' => $link->id]);
             \local_zoomattendance\event\identity_unlinked::create_from_link($link)->trigger();
         }
@@ -90,11 +93,42 @@ class manual {
     }
 
     /**
-     * Whether the current user may exclude classes of an activity, or include them again.
+     * Whether the current user may link Zoom identities to a user, or remove such links.
      *
-     * Excluded classes do not count against teachers, so while teacher attendance is tracked
-     * teachers cannot exclude their own missed classes: it takes excludetracked as well, given
-     * to managers by default.
+     * A link adds the participant's time to the user's. While teacher attendance is tracked,
+     * linking to (or unlinking from) a tracked teacher takes excludetracked too, so teachers
+     * cannot add someone else's Zoom time to their own or a colleague's figures.
+     *
+     * @param \context_course $context
+     * @param int $userid The user the identity is linked to.
+     * @return bool
+     */
+    public static function can_link_to(\context_course $context, int $userid): bool {
+        if (!settings::teacher_tracking() || has_capability('local/zoomattendance:excludetracked', $context)) {
+            return true;
+        }
+        return !has_capability('local/zoomattendance:betrackedteacher', $context, $userid);
+    }
+
+    /**
+     * Throw unless the current user may link identities to a user, see can_link_to().
+     *
+     * @param \context_course $context
+     * @param int $userid
+     */
+    protected static function require_link_to(\context_course $context, int $userid): void {
+        if (!self::can_link_to($context, $userid)) {
+            throw new \required_capability_exception($context, 'local/zoomattendance:excludetracked', 'nopermissions', '');
+        }
+    }
+
+    /**
+     * Whether the current user may exclude classes of an activity, or include them again, and
+     * set the window of a class.
+     *
+     * Excluded classes do not count against teachers, and a window decides how late a teacher
+     * joined, so while teacher attendance is tracked teachers cannot change either for their
+     * own classes: it takes excludetracked as well, given to managers by default.
      *
      * @param \context_module $context
      * @return bool

@@ -127,6 +127,9 @@ final class observer_test extends \advanced_testcase {
         set_config('teachertrackingsince', 1, 'local_zoomattendance');
         set_config('last_call_made_at', time(), 'zoom');
         $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        // Freeze the class again, as if the teacher had been there all along.
+        $DB->delete_records('local_zoomattendance_roster');
+        $DB->set_field('local_zoomattendance_occ', 'rosterfrozen', 0);
         reset_course_userdata((object) ['id' => $course->id, 'reset_zoom_all' => 1,
             'reset_start_date_old' => $course->startdate]);
         sync::sync_all();

@@ -73,7 +73,7 @@ class backup_local_zoomattendance_plugin extends backup_local_plugin {
             'matchstrength', 'timemodified',
         ]);
         $rosters = new backup_nested_element('rosters');
-        $roster = new backup_nested_element('roster', ['id'], ['userid', 'kind', 'timecreated']);
+        $roster = new backup_nested_element('roster', ['id'], ['userid', 'kind', 'groupids', 'timecreated']);
         $wrapper->add_child($occurrences);
         $occurrences->add_child($occurrence);
         $occurrence->add_child($results);
