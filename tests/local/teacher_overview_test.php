@@ -122,7 +122,7 @@ final class teacher_overview_test extends \advanced_testcase {
         $this->assertSame([], \local_zoomattendance\output\renderer::teacher_list_notes($stats));
         $stats = array_merge($stats, ['notheld' => 2, 'excluded' => 3, 'excludedbyself' => 1, 'selflinked' => 1]);
         $this->assertSame(
-            ['2 not held', '3 excluded (1 by the teacher)', '1 self-linked'],
+            ['2 not held', '3 excluded (1 by the teacher themself)', '1 self-linked'],
             \local_zoomattendance\output\renderer::teacher_list_notes($stats)
         );
         $stats['excludedbyself'] = 0;

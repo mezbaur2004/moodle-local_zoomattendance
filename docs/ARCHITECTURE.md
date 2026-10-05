@@ -954,9 +954,9 @@ the rule is a plain one, not Moodle's role-assignment hierarchy. Nobody without
   * One row per teacher and course, across every course where the viewer has
     `viewteacherreports` (`get_user_capability_course()`).
   * Columns (since 0.3.2): teacher, role, course, classes, present, partial, absent, attendance %
-    and notes. Notes name not held, excluded (of which by the teacher) and self-linked classes
+    and notes. Notes name not held, excluded (of which by the teacher themself) and self-linked classes
     when there are any. The download also has category, not held, late starts, early leaves,
-    excluded, excluded by the teacher and self-links.
+    excluded, excluded by the teacher themself and self-links.
   * Role is the teacher's roles assigned in the course, with the course's role renaming; the
     course page shows it under each teacher's name.
   * Filters: date range (default the last 30 days) and category. It has a download.
