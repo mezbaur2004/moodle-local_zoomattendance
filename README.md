@@ -7,6 +7,23 @@ already stores into per-class attendance (present / partial / absent) with repor
 It adds no Zoom API integration of its own and does not modify mod_zoom. It only reads
 mod_zoom's tables and the calendar events mod_zoom writes.
 
+A companion Dashboard block, [block_zoomattendance](https://github.com/mezbaur2004/moodle-block_zoomattendance),
+shows the latest class headcount and each user's own attendance.
+
+## Why it exists
+
+mod_zoom stores every session and every participant's join/leave segments, but it has no
+notion of a *class*: it doesn't link sessions to the scheduled occurrences of a recurring
+meeting, and its duration grading doesn't take a true interval union (a third segment inside
+the gap between two others is treated as overlap) or clip participant time to the schedule.
+This plugin maps sessions to scheduled classes, computes attendance per class, and keeps
+those results stable when enrolments, groups or mod_zoom's own data change later.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) cites the mod_zoom code behind each of these
+points.
+
+Designed, reviewed and tested by Mezbaur Are Rafi; the implementation was written with AI
+assistance (Claude).
+
 ## Requirements
 
 - Moodle 4.1 or later
