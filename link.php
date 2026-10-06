@@ -85,9 +85,17 @@ if ($key !== '') {
     foreach ($identity as $field) {
         $fields .= ', u.' . $field;
     }
+    // Tracked teachers are left out for viewers who may not change teacher figures (manual::can_link_to()).
+    $notlinkable = [];
+    if (!manual::can_link_to_teachers($coursecontext)) {
+        $notlinkable = get_users_by_capability($coursecontext, 'local/zoomattendance:betrackedteacher', 'u.id');
+    }
     foreach (['local/zoomattendance:betracked', 'local/zoomattendance:betrackedteacher'] as $capability) {
         $enrolled = get_enrolled_users($coursecontext, $capability, 0, 'u.id' . $fields, 'u.lastname, u.firstname');
         foreach ($enrolled as $user) {
+            if (isset($notlinkable[$user->id])) {
+                continue;
+            }
             $extra = array_filter(array_map(function ($field) use ($user) {
                 return (string) ($user->$field ?? '');
             }, $identity));
@@ -135,10 +143,10 @@ if (!$links) {
             s((string) $link->displayname),
             $user ? fullname($user) : '',
             userdate($link->timecreated, get_string('strftimedatetimeshort', 'langconfig')),
-            html_writer::link(
+            manual::can_link_to($coursecontext, (int) $link->userid) ? html_writer::link(
                 new moodle_url($url, ['action' => 'unlink', 'link' => $link->id, 'sesskey' => sesskey()]),
                 get_string('unlink', 'local_zoomattendance')
-            ),
+            ) : '',
         ];
     }
     echo html_writer::table($table);

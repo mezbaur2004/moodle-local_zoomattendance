@@ -226,8 +226,10 @@ final class provider_test extends \core_privacy\tests\provider_testcase {
         global $DB;
         $context = \context_module::instance($this->cm->id);
         $occurrence = $DB->get_record('local_zoomattendance_occ', ['zoomid' => $this->cm->instance], '*', MUST_EXIST);
-        $DB->insert_record('local_zoomattendance_roster', (object) ['occurrenceid' => $occurrence->id,
-            'userid' => $this->user2->id, 'kind' => 'student', 'timecreated' => time()]);
+        $student = ['occurrenceid' => $occurrence->id, 'userid' => $this->user2->id, 'kind' => 'student'];
+        if (!$DB->record_exists('local_zoomattendance_roster', $student)) {
+            $DB->insert_record('local_zoomattendance_roster', (object) ($student + ['timecreated' => time()]));
+        }
         $teacher = $this->getDataGenerator()->create_and_enrol($this->course, 'teacher');
         $DB->insert_record('local_zoomattendance_teacher', (object) ['cmid' => $this->cm->id,
             'userid' => $teacher->id, 'timecreated' => time(), 'usermodified' => $this->user1->id]);

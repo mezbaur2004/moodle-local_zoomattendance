@@ -54,6 +54,14 @@ final class headcount_test extends \advanced_testcase {
         $generator->create_participant($session, $start, $start + 40 * MINSECS, ['userid' => $half->id]);
         // Teachers are not students: never counted.
         $generator->create_participant($session, $start, $start + HOURSECS, ['userid' => $coordinator->id]);
+        // Groups as they were at the class.
+        $one = $dg->create_group(['courseid' => $course->id]);
+        $two = $dg->create_group(['courseid' => $course->id]);
+        foreach ([$one, $two] as $group) {
+            $dg->create_group_member(['groupid' => $group->id, 'userid' => $teacher->id]);
+            $dg->create_group_member(['groupid' => $group->id, 'userid' => $full->id]);
+        }
+        $dg->create_group_member(['groupid' => $two->id, 'userid' => $away->id]);
         sync::sync_all();
 
         $this->setAdminUser();
@@ -71,13 +79,6 @@ final class headcount_test extends \advanced_testcase {
         // In separate groups, a teacher counts their own groups only, each student once.
         $DB->update_record('course', (object) ['id' => $course->id, 'groupmode' => SEPARATEGROUPS, 'groupmodeforce' => 1]);
         $course = get_course($course->id);
-        $one = $dg->create_group(['courseid' => $course->id]);
-        $two = $dg->create_group(['courseid' => $course->id]);
-        foreach ([$one, $two] as $group) {
-            $dg->create_group_member(['groupid' => $group->id, 'userid' => $teacher->id]);
-            $dg->create_group_member(['groupid' => $group->id, 'userid' => $full->id]);
-        }
-        $dg->create_group_member(['groupid' => $two->id, 'userid' => $away->id]);
         rebuild_course_cache($course->id, true);
         $this->setUser($teacher);
         $this->assertSame(

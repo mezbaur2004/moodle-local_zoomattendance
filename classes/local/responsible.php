@@ -72,6 +72,6 @@ class responsible {
             ]);
         }
         $transaction->allow_commit();
-        data_version::bump();
+        data_version::bump_course((int) $DB->get_field('course_modules', 'course', ['id' => $cmid]));
     }
 }

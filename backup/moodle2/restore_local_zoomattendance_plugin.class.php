@@ -114,9 +114,8 @@ class restore_local_zoomattendance_plugin extends restore_local_plugin {
         $data->occurrencekey = 'tmp:' . sha1($this->get_restoreid() . '|' . $oldid);
         $data->usermodified = (int) $this->get_mappingid('user', $data->usermodified, 0);
         $data->restored = time();
-        foreach (['timestart', 'timeend'] as $field) {
-            $data->$field = (int) $this->apply_date_offset($data->$field);
-        }
+        // Times stay as recorded, even when the course dates move: attendance is a record of
+        // when the class took place.
         unset($data->id);
         $newid = $DB->insert_record('local_zoomattendance_occ', $data);
         $this->set_mapping('local_zoomattendance_occurrence', $oldid, $newid);
@@ -130,11 +129,9 @@ class restore_local_zoomattendance_plugin extends restore_local_plugin {
         global $DB;
         $zoomid = (int) $this->task->get_activityid();
         foreach ($this->occurrences as $newid => $oldid) {
-            $key = $this->occurrencekeys[$oldid];
-            // Keys are unique per activity; a restored class never takes the place of an existing one.
-            if ($DB->record_exists('local_zoomattendance_occ', ['zoomid' => $zoomid, 'occurrencekey' => $key])) {
-                $key = 'r:' . sha1($key . '|' . $oldid);
-            }
+            // A key of its own: a restored class never takes the key of a scheduled one. The sync
+            // leaves out a scheduled class at the same time instead (sync::snapshot_schedule()).
+            $key = 'r:' . sha1($this->get_restoreid() . '|' . $oldid . '|' . $this->occurrencekeys[$oldid]);
             $DB->update_record('local_zoomattendance_occ', (object) ['id' => $newid, 'zoomid' => $zoomid, 'occurrencekey' => $key]);
         }
         $this->occurrences = [];
@@ -160,11 +157,6 @@ class restore_local_zoomattendance_plugin extends restore_local_plugin {
         } else {
             $data->userid = null;
         }
-        foreach (['firstjoin', 'lastleave'] as $field) {
-            if ($data->$field !== null && $data->$field !== '') {
-                $data->$field = (int) $this->apply_date_offset($data->$field);
-            }
-        }
         unset($data->id);
         $DB->insert_record('local_zoomattendance_result', $data);
     }
@@ -181,10 +173,18 @@ class restore_local_zoomattendance_plugin extends restore_local_plugin {
         if (!$userid) {
             return;
         }
+        // Groups the user was in, as restored (groups that were not restored are left out).
+        $groupids = [];
+        foreach (explode(',', (string) ($data->groupids ?? '')) as $groupid) {
+            if ((int) $groupid && ($new = $this->get_mappingid('group', (int) $groupid))) {
+                $groupids[] = (int) $new;
+            }
+        }
         $DB->insert_record('local_zoomattendance_roster', (object) [
             'occurrenceid' => $this->get_new_parentid('local_zoomattendance_occurrence'),
             'userid' => $userid,
             'kind' => $data->kind,
+            'groupids' => $groupids ? ',' . implode(',', $groupids) . ',' : '',
             'timecreated' => (int) $data->timecreated,
         ]);
     }

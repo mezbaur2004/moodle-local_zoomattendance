@@ -49,6 +49,22 @@ class export {
     }
 
     /**
+     * Headings and rows with every text cell made safe. Headings too: they hold activity names,
+     * which teachers choose.
+     *
+     * @param string[] $columns column key => heading.
+     * @param array[] $rows Each column key => value.
+     * @return array [columns, rows]
+     */
+    public static function safe(array $columns, array $rows): array {
+        $safe = [];
+        foreach ($rows as $row) {
+            $safe[] = array_map([self::class, 'cell'], $row);
+        }
+        return [array_map([self::class, 'cell'], $columns), $safe];
+    }
+
+    /**
      * Send a download with every text cell made safe.
      *
      * @param string $filename Without extension.
@@ -57,10 +73,7 @@ class export {
      * @param array[] $rows Each column key => value.
      */
     public static function download(string $filename, string $dataformat, array $columns, array $rows): void {
-        $safe = [];
-        foreach ($rows as $row) {
-            $safe[] = array_map([self::class, 'cell'], $row);
-        }
-        \core\dataformat::download_data($filename, $dataformat, $columns, $safe);
+        [$columns, $rows] = self::safe($columns, $rows);
+        \core\dataformat::download_data($filename, $dataformat, $columns, $rows);
     }
 }

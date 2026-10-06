@@ -883,9 +883,16 @@ A scheduled class with no Zoom session is today shown as *No session data* and n
 
 Until then the teacher view shows the class as *Awaiting Zoom report* and does not count it.
 
-Known limit: if two activities share a Zoom meeting id, mod_zoom attaches sessions to only
-one of them (D13). A class held through the other activity looks Not held. The existing
-shared-meeting warning is repeated on the teacher pages.
+**Correction (0.5.0, C17).** Point 3 overstated the watermark. mod_zoom also moves it past
+meetings it never fetched: in the Reports API mode a rate-limit error ends the host loop early
+and the partial list is still treated as complete; hosts not linked to a Moodle activity are
+skipped; a participants call answering "not found" counts as success; and a meeting whose
+report Zoom has not published yet when the task runs is skipped for good once the watermark
+passes it. Since 0.5.0 Not held also needs a later session of the same host on record, and a
+session with no participant at all is *No participant report*.
+
+Known limit until 0.5.0: if two activities share a Zoom meeting id, mod_zoom attaches sessions to
+only one of them (D13), and a class held through the other activity looked Not held. See C17.
 
 ## C5. Integrity: changes a teacher could make to their own figures (D22)
 
@@ -1205,6 +1212,55 @@ From a full audit (security, data integrity, scale, upgrade, compatibility, app 
 * Maturity beta; CI adds Moodle 4.1 on PHP 7.4 and Behat (`tests/behat`, with steps that create
   classes through the test generator, since mod_zoom creates meetings through the Zoom API).
 
+## C17. 0.5.0 adversarial review fixes
+
+From a review that assumed the plugin was written by someone else and tried to break it.
+
+* **Freezing at class end** (D29 revised). `roster::freeze_due()` freezes a class at the first sync
+  after it ends: who was expected is a fact of the class time, not of when the Zoom report arrives.
+  Access restrictions only filter user lists through group, grouping and profile conditions
+  (`is_applied_to_user_lists()`), which are structural; date and completion conditions do not.
+  The one time-dependent filter is the activity's visibility: a class the sync reaches more than
+  `roster::LATE` (6 h) after it ended while the activity is hidden is set to `roster::DEFERRED`
+  (`rosterfrozen = -1`) and stays live. 0.4.0 froze such classes on its first sync with no student
+  on the list; the upgrade unfreezes classes frozen late with no student
+  (`local_zoomattendance_unfreeze_late_empty()`). Each frozen row stores the user's course groups
+  (`roster.groupids`, `,3,7,`); `attendance::is_expected()` and `roster_candidates()` use them in
+  group views. A sync run freezes at most `roster::BATCH` classes, 100 per transaction.
+* **Not held** (D20 revised) also needs `zoom_source::host_latest_session()` ≥ the class end, and
+  the class must not fall in a period teacher tracking was off (`settings::teacher_tracked_at()`;
+  `teachertrackingsince` is only set the first time, pauses go to `teachertrackingpauses`). A held
+  class with no result row at all is `attendance::STATE_NOREPORT`, counted for nobody.
+* **Shared meeting ids** (D13 revised). `sync::share_sessions()`: when activities share a meeting,
+  a session that matches the fixed schedule (scheduled or manual classes, plus the schedule mod_zoom
+  holds now) of exactly one of them is counted there, whichever activity mod_zoom filed it under;
+  any other session stays where it was filed. Taking a session over deletes the other activity's
+  session row and marks its class for recompute; the incremental sync also visits the activities
+  sharing a meeting with a changed one. A class with no session whose time a session of such an
+  activity covers is `teacher_attendance::STATE_ELSEWHERE`, not Not held.
+* **Integrity** (D22 revised). While teacher tracking is on, `window.php` and the window links need
+  `manual::can_exclude()`, and `manual::link_identity()`/`unlink_identity()` refuse a tracked teacher
+  as the link target without `excludetracked` (`manual::can_link_to()`).
+* **Restore.** `sync::delete_orphans()` leaves classes with zoom id 0 alone for two days: a restore
+  writes them before the activity exists and attaches them in `after_restore_module()`, which Moodle
+  runs at the end of the whole restore. The full pass also removes results and frozen rows whose
+  class is gone. Restored classes keep their recorded times (no date offset) under an `r:` key; the
+  snapshot leaves out scheduled windows that overlap a restored class. Restored classes are never
+  marked for recompute.
+* **Caching** (D31 revised). `data_version` keeps a site version, one per course and one that changes
+  with any (`get()`, used by the block). `data_version::cached()` stores the version with the value
+  under a key without it, so a change overwrites the entry: the default file store never deletes
+  expired entries. A sync bumps its course only when it wrote something (`perf_get_writes()`);
+  `user_updated` bumps the user's courses only. Summary keys include `attendance::identity_key()`.
+* **Sync.** The incremental pass looks again at the last `sync::ID_OVERLAP` ids (rows committed out of
+  order). The session fingerprint adds join and leave sums and a row-weighted user sum; the 0.4.0
+  fingerprint is recognised and replaced without a recompute. The upgrade forces a full pass.
+* **Retention** (D16 revised): at least `settings::RETENTION_MIN` days, by class start, so a class at
+  the cutoff is not recreated from its session.
+* `export::safe()` also neutralises download headings.
+* Not fixed: an unmatched participant whose email or name mod_zoom changes in place keeps its old
+  identity until the participant row itself changes.
+
 ## Decisions
 
 All open questions were resolved by adopting the proposed defaults.
@@ -1223,24 +1279,27 @@ All open questions were resolved by adopting the proposed defaults.
 | **D10** | `maskparticipantdata` | Respected: when on, only aggregates are shown. |
 | **D11** | Past occurrences lost before first snapshot | Inferred windows (B8 fallback) plus manual override. Superseded for fixed-time meetings by D26. |
 | **D12** | Course reset | Follow mod_zoom's reset; no reset option of our own. |
-| **D13** | Shared `meeting_id` | Detect and show a warning in the activity report. |
+| **D13** | Shared `meeting_id` | Detect and show a warning in the activity report. Since 0.5.0 sessions count for the activity whose schedule they match, and a class held under another such activity is *Held in another activity* (C17). |
 | **D14** | Gradebook | Reports only; no grades written. |
 | **D15** | Margins | Early/late mapping margins 30 / 30 min and cluster gap 30 min, all admin settings. |
-| **D16** | Retention | Results mirror the mod_zoom source and are removed when the source rows go. Since 0.4.0 a site retention period (off by default) can delete older classes (C16). |
+| **D16** | Retention | Results mirror the mod_zoom source and are removed when the source rows go. Since 0.4.0 a site retention period (off by default) can delete older classes (C16); since 0.5.0 at least 30 days, by class start (C17). |
 | **D17** | Teacher tracking | Capability `betrackedteacher` for editingteacher and teacher; enrolled teachers only; site switch `teachertracking`, default off (C2). |
 | **D18** | Several teachers | Every expected teacher is expected at every occurrence, unless an activity has responsible teachers (since 0.4.0, C16). |
 | **D19** | Teacher status | Site-level thresholds only: Present ≥ 90 %, Partial ≥ 10 % (50 % up to 0.3.0), grace 5 min, all configurable; always against the scheduled window; late-start and early-leave minutes shown (C3). |
-| **D20** | Classes not held | Count as Absent for expected teachers once mod_zoom's report watermark is 24 h (configurable) past the end, and only for scheduled occurrences ending after teacher tracking was switched on. Students unaffected (C4). |
+| **D20** | Classes not held | Count as Absent for expected teachers once mod_zoom's report watermark is 24 h (configurable) past the end, and only for scheduled occurrences ending after teacher tracking was switched on. Students unaffected (C4). Since 0.5.0 the host must also have a later session, and periods with tracking off are skipped (C17). |
 | **D21** | Visibility | Managers see all teachers (`viewteacherreports`); each teacher sees their own figures (`viewownteacher`); editing teachers also see non-editing teachers (`viewnoneditingteachers`, plain rule); other teachers are hidden in existing reports (C6). |
-| **D22** | Integrity | While teacher tracking is on, every activity is synced; exclusions, windows and identity links record who made them, are logged, and are shown to managers; self-links are flagged (C5). |
+| **D22** | Integrity | While teacher tracking is on, every activity is synced; exclusions, windows and identity links record who made them, are logged, and are shown to managers; self-links are flagged (C5). Since 0.5.0 windows and links to teachers need `excludetracked` while tracking is on (C17). |
 | **D23** | Teacher course overall | Weighted percentage only, no overall status, as for students (C3). |
 | **D24** | Host detection | Deferred until verified against real Zoom data (C10). |
 | **D25** | Reset | A reset with `reset_zoom_all` marks the course's past occurrences *Zoom data reset* (status 3), never counted, so they do not become Not held (C8, C11). |
 | **D26** | Regular meeting time | Since 0.3.2, a held class of a fixed-time recurring meeting without a calendar event is measured against the meeting's regular time and length on that day, not the span the room was open. |
 | **D27** | When joined | Since 0.3.4, teachers also get attendance over only the classes they joined, beside Attendance (C14). |
 | **D28** | Class headcount | Since 0.3.5, every class shows how many of its expected students were present, partial and absent, wherever classes are listed; since 0.3.6 its headline counts present + partial as present overall (C15). |
-| **D29** | Frozen expected lists | Since 0.4.0, past classes keep the users expected at them; the first sync after upgrading freezes them from the enrolments at that time (C16). |
+| **D29** | Frozen expected lists | Since 0.4.0, past classes keep the users expected at them (C16). Since 0.5.0 frozen at class end with their groups; a class reached late while its activity is hidden stays live (C17). |
 | **D30** | Exclusion policy | Since 0.4.0, exclusions need a reason, and while teacher tracking is on a separate capability (managers) (C16). |
 | **D31** | Scale | Since 0.4.0, incremental hourly sync with a daily full pass, background recompute for links, cached summaries with a data version, paged course report (C16). |
 | **D32** | Backup | Since 0.4.0, restored classes keep their stored figures; mod_zoom's reports are not in backups (C16). |
 | **D33** | Moodle app | Since 0.4.0, a course option in the app, data-only templates (C16). |
+| **D34** | Missing participant reports | Since 0.5.0, a held class with no participant is *No participant report*, counted for nobody (C17). |
+| **D35** | Tracking pauses | Since 0.5.0, switching teacher tracking off and on records the pause; classes in it are never Not held (C17). |
+| **D36** | Restored times | Since 0.5.0, restored classes keep the times they took place; course date offsets do not apply (C17). |

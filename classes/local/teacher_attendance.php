@@ -24,6 +24,8 @@
 
 namespace local_zoomattendance\local;
 
+use local_zoomattendance\local\source\zoom_source;
+
 /**
  * Evaluates teachers against the site-level teacher thresholds.
  *
@@ -37,6 +39,11 @@ class teacher_attendance {
     public const STATE_NOTHELD = 'notheld';
     /** @var string Ended without a Zoom session; mod_zoom may still import one. */
     public const STATE_AWAITING = 'awaiting';
+    /**
+     * @var string Ended without a Zoom session here, but another activity using the same Zoom
+     * meeting has one at that time: the Zoom plugin filed it there.
+     */
+    public const STATE_ELSEWHERE = 'elsewhere';
 
     /** @var attendance */
     public $attendance;
@@ -48,6 +55,10 @@ class teacher_attendance {
     protected $delay;
     /** @var int Occurrences ending before this are never marked not held. */
     protected $since;
+    /** @var int|null Start of the host's latest Zoom session in any activity, see host_reported(). */
+    protected $hostreported;
+    /** @var int[][]|null [start, end] of the sessions of other activities using the same Zoom meeting. */
+    protected $siblingsessions;
 
     /**
      * Constructor.
@@ -74,6 +85,9 @@ class teacher_attendance {
         if ($state !== attendance::STATE_NODATA) {
             return $state;
         }
+        if ($this->held_elsewhere($occurrence)) {
+            return self::STATE_ELSEWHERE;
+        }
         return $this->is_not_held($occurrence) ? self::STATE_NOTHELD : self::STATE_AWAITING;
     }
 
@@ -81,8 +95,11 @@ class teacher_attendance {
      * Whether an ended occurrence without sessions counts as not held.
      *
      * Only scheduled occurrences have an expected slot, and only those known before they ended.
-     * mod_zoom only moves its watermark once every meeting up to it was processed, so a failing
-     * report task marks nothing.
+     *
+     * The Zoom plugin's report watermark alone is not proof: it also moves past meetings it
+     * skipped (hosts it does not fetch, hosts left out when Zoom's rate limit is hit, reports
+     * not ready yet). So the host must also have a later session on record, which shows their
+     * reports were fetched beyond this class.
      *
      * @param \stdClass $occurrence
      * @return bool
@@ -94,7 +111,42 @@ class teacher_attendance {
         return $occurrence->source === sync::SOURCE_SCHEDULE
             && $end >= $this->since
             && (int) $occurrence->timecreated < $end
-            && $this->watermark >= $end + $this->delay;
+            && $this->watermark >= $end + $this->delay
+            && settings::teacher_tracked_at($end)
+            && $this->host_reported() >= $end;
+    }
+
+    /**
+     * Start of the latest Zoom session the host of this activity has in any activity.
+     *
+     * @return int 0 when none.
+     */
+    protected function host_reported(): int {
+        if ($this->hostreported === null) {
+            $this->hostreported = zoom_source::host_latest_session((string) ($this->attendance->instance->host_id ?? ''));
+        }
+        return $this->hostreported;
+    }
+
+    /**
+     * Whether another activity using the same Zoom meeting has a session during the class.
+     *
+     * @param \stdClass $occurrence
+     * @return bool
+     */
+    public function held_elsewhere(\stdClass $occurrence): bool {
+        if ($this->siblingsessions === null) {
+            $this->siblingsessions = zoom_source::sibling_session_spans($this->attendance->instance);
+        }
+        [$early, $late] = settings::margins();
+        $from = (int) $occurrence->timestart - $early;
+        $to = (int) $occurrence->timeend + $late;
+        foreach ($this->siblingsessions as [$start, $end]) {
+            if ($start < $to && $end > $from) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

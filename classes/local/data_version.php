@@ -25,53 +25,109 @@
 namespace local_zoomattendance\local;
 
 /**
- * A version that changes whenever anything a report shows may have changed.
+ * Versions that change whenever anything a report shows may have changed.
  *
- * Cached summaries include it in their key, so a change makes every older entry unused at once,
- * without having to know which entries it affects. Changing it is one cache write.
+ * There is a site-wide version (settings, anything not tied to one course), one per course, and
+ * one that changes with either (get(), for caches spanning courses such as the block's).
+ * Cached summaries store the version they were built from with the value, under a key that
+ * does not change: a newer version rebuilds and overwrites the entry, so the cache holds one
+ * entry per summary, however often the data changes. Changing a version is one cache write.
  */
 class data_version {
+    /** @var string Key of the version that changes with any other. */
+    protected const ANY = 'data';
+    /** @var string Key of the site-wide version. */
+    protected const SITE = 'site';
+
     /**
-     * The current version.
+     * A version, started when missing.
      *
+     * @param string $key
      * @return string
      */
-    public static function get(): string {
-        $cache = \cache::make('local_zoomattendance', 'version');
-        $version = $cache->get('data');
+    protected static function read(string $key): string {
+        $version = \cache::make('local_zoomattendance', 'version')->get($key);
         if ($version === false) {
-            $version = self::bump();
+            $version = self::write($key);
         }
         return (string) $version;
     }
 
     /**
-     * Start a new version. Also usable as an admin setting or event callback.
+     * Start a new version.
+     *
+     * @param string $key
+     * @return string
+     */
+    protected static function write(string $key): string {
+        $version = uniqid('', true);
+        \cache::make('local_zoomattendance', 'version')->set($key, $version);
+        return $version;
+    }
+
+    /**
+     * The version that changes whenever anything changes, in any course.
+     *
+     * @return string
+     */
+    public static function get(): string {
+        return self::read(self::ANY);
+    }
+
+    /**
+     * The version of one course's data: changes with the site-wide version too.
+     *
+     * @param int $courseid
+     * @return string
+     */
+    public static function for_course(int $courseid): string {
+        return self::read(self::SITE) . '/' . self::read('c' . $courseid);
+    }
+
+    /**
+     * Start a new site-wide version: every course's data may have changed. Also usable as an
+     * admin setting or event callback (any arguments are ignored).
      *
      * @return string The new version.
      */
     public static function bump(): string {
-        $version = uniqid('', true);
-        \cache::make('local_zoomattendance', 'version')->set('data', $version);
-        return $version;
+        self::write(self::SITE);
+        return self::write(self::ANY);
+    }
+
+    /**
+     * Start a new version of one course's data.
+     *
+     * @param int $courseid
+     */
+    public static function bump_course(int $courseid): void {
+        if ($courseid <= SITEID) {
+            self::bump();
+            return;
+        }
+        self::write('c' . $courseid);
+        self::write(self::ANY);
     }
 
     /**
      * A cached value for a key, built and stored when missing or older than the data.
      *
-     * @param array $key What the value is built for; the version is added.
+     * @param array $key What the value is built for.
      * @param callable $build Builds the value.
+     * @param int|null $courseid The course the value is about (null: any course).
+     * @param string $stamp Anything else the value depends on, such as the time.
      * @return mixed
      */
-    public static function cached(array $key, callable $build) {
+    public static function cached(array $key, callable $build, ?int $courseid = null, string $stamp = '') {
         $cache = \cache::make('local_zoomattendance', 'summaries');
-        $key[] = self::get();
+        $version = ($courseid === null ? self::get() : self::for_course($courseid)) . '|' . $stamp;
         $hash = sha1(json_encode($key));
-        $value = $cache->get($hash);
-        if ($value === false) {
-            $value = $build();
-            $cache->set($hash, $value);
+        $entry = $cache->get($hash);
+        if (is_array($entry) && ($entry['version'] ?? null) === $version) {
+            return $entry['value'];
         }
+        $value = $build();
+        $cache->set($hash, ['version' => $version, 'value' => $value]);
         return $value;
     }
 }

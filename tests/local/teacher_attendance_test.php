@@ -97,6 +97,18 @@ final class teacher_attendance_test extends \advanced_testcase {
     }
 
     /**
+     * Give the host a Zoom session at a time, in an activity of another course: the Zoom plugin
+     * has fetched the host's reports that far.
+     *
+     * @param int $start
+     */
+    protected function host_reported_at(int $start): void {
+        $other = $this->getDataGenerator()->create_course();
+        $cm = $this->generator->create_zoom(['course' => $other->id, 'start_time' => $start, 'duration' => HOURSECS]);
+        $this->generator->create_session($cm, $start, $start + HOURSECS);
+    }
+
+    /**
      * Run the queued background tasks, as cron would.
      */
     protected function run_adhoc_tasks(): void {
@@ -123,7 +135,19 @@ final class teacher_attendance_test extends \advanced_testcase {
         $this->assertGreaterThanOrEqual(time() - 5, settings::teacher_tracking_since());
         set_config('teachertrackingsince', 1, 'local_zoomattendance');
         settings::teacher_tracking_updated();
-        $this->assertGreaterThan(1, (int) get_config('local_zoomattendance', 'teachertrackingsince'));
+        $this->assertSame(1, (int) get_config('local_zoomattendance', 'teachertrackingsince'));
+
+        // Switched off and on again: the time it was off is skipped, the classes before it stay.
+        set_config('teachertracking', 0, 'local_zoomattendance');
+        settings::teacher_tracking_updated();
+        $off = time();
+        $this->assertFalse(settings::teacher_tracked_at($off + 10));
+        set_config('teachertracking', 1, 'local_zoomattendance');
+        settings::teacher_tracking_updated();
+        $this->assertSame(1, (int) get_config('local_zoomattendance', 'teachertrackingsince'));
+        $this->assertTrue(settings::teacher_tracked_at(100));
+        $this->assertFalse(settings::teacher_tracked_at($off));
+        $this->assertTrue(settings::teacher_tracked_at(time() + HOURSECS));
     }
 
     public function test_teacher_statuses_and_figures(): void {
@@ -187,7 +211,12 @@ final class teacher_attendance_test extends \advanced_testcase {
         $this->assertSame(teacher_attendance::STATE_AWAITING, $evaluation->state);
         $this->assertNull($evaluation->rows[$teacher->id]->status);
 
+        // Far enough, but the host has no later session: their reports may not be fetched
+        // (a host the Zoom plugin skips, Zoom's rate limit, a report not ready yet).
         set_config('last_call_made_at', $end + 25 * HOURSECS, 'zoom');
+        $this->assertSame(teacher_attendance::STATE_AWAITING, $this->evaluate_first($cm)->state);
+
+        $this->host_reported_at($end + 2 * HOURSECS);
         $evaluation = $this->evaluate_first($cm);
         $this->assertSame(teacher_attendance::STATE_NOTHELD, $evaluation->state);
         $this->assertSame(status::ABSENT, $evaluation->rows[$teacher->id]->status);
@@ -248,6 +277,7 @@ final class teacher_attendance_test extends \advanced_testcase {
         sync::sync_all();
         $this->known_in_advance();
         set_config('last_call_made_at', time(), 'zoom');
+        $this->host_reported_at($this->mins(3 * 24 * 60));
         $this->setUser($teacher);
         $occurrence = $DB->get_record('local_zoomattendance_occ', ['zoomid' => $excluded->instance]);
         manual::set_excluded($occurrence, true, 'Public holiday');
@@ -281,7 +311,62 @@ final class teacher_attendance_test extends \advanced_testcase {
         $this->assertCount(1, $range->activities);
     }
 
+    /**
+     * Let editing teachers change teacher figures (excludetracked), as a site may.
+     */
+    protected function allow_excludetracked(): void {
+        global $DB;
+        $roleid = $DB->get_field('role', 'id', ['shortname' => 'editingteacher']);
+        assign_capability('local/zoomattendance:excludetracked', CAP_ALLOW, $roleid, \context_course::instance($this->course->id));
+    }
+
+    public function test_teachers_cannot_link_identities_to_teachers(): void {
+        global $DB;
+        $dg = $this->getDataGenerator();
+        $teacher = $dg->create_and_enrol($this->course, 'editingteacher');
+        $colleague = $dg->create_and_enrol($this->course, 'editingteacher');
+        $student = $dg->create_and_enrol($this->course, 'student');
+        $cm = $this->create_class();
+        $session = $this->generator->create_session($cm, $this->mins(0), $this->mins(60));
+        $this->generator->create_participant($session, $this->mins(0), $this->mins(60), ['name' => 'Tablet',
+            'user_email' => 'tablet@example.org']);
+        sync::sync_all();
+        $context = \context_course::instance($this->course->id);
+        $key = 'z:' . sha1('e:tablet@example.org');
+
+        // Someone else's Zoom time would count for the teacher, or a colleague.
+        $this->setUser($teacher);
+        $this->assertFalse(manual::can_link_to($context, (int) $teacher->id));
+        $this->assertFalse(manual::can_link_to($context, (int) $colleague->id));
+        $this->assertTrue(manual::can_link_to($context, (int) $student->id));
+        try {
+            manual::link_identity((int) $this->course->id, $key, (int) $teacher->id, 'Tablet');
+            $this->fail('A teacher linked a participant to themself.');
+        } catch (\required_capability_exception $e) {
+            $this->assertFalse($DB->record_exists('local_zoomattendance_idmap', ['identitykey' => $key]));
+        }
+        // Linking to a student is fine.
+        manual::link_identity((int) $this->course->id, $key, (int) $student->id, 'Tablet');
+
+        // A manager links it to the teacher; the teacher cannot take the link away either.
+        $this->setAdminUser();
+        manual::link_identity((int) $this->course->id, $key, (int) $teacher->id, 'Tablet');
+        $link = $DB->get_record('local_zoomattendance_idmap', ['identitykey' => $key], '*', MUST_EXIST);
+        $this->setUser($colleague);
+        try {
+            manual::unlink_identity((int) $this->course->id, (int) $link->id);
+            $this->fail('A teacher removed a link to a colleague.');
+        } catch (\required_capability_exception $e) {
+            $this->assertTrue($DB->record_exists('local_zoomattendance_idmap', ['id' => $link->id]));
+        }
+
+        // Without teacher tracking there are no teacher figures to protect.
+        set_config('teachertracking', 0, 'local_zoomattendance');
+        $this->assertTrue(manual::can_link_to($context, (int) $teacher->id));
+    }
+
     public function test_self_links_are_flagged(): void {
+        $this->allow_excludetracked();
         $teacher = $this->getDataGenerator()->create_and_enrol($this->course, 'editingteacher');
         $cm = $this->create_class();
         $session = $this->generator->create_session($cm, $this->mins(0), $this->mins(60));
@@ -323,6 +408,7 @@ final class teacher_attendance_test extends \advanced_testcase {
     }
 
     public function test_self_link_flag_needs_the_teachers_own_link_in_that_class(): void {
+        $this->allow_excludetracked();
         $dg = $this->getDataGenerator();
         $teacher = $dg->create_and_enrol($this->course, 'editingteacher');
         $colleague = $dg->create_and_enrol($this->course, 'editingteacher');

@@ -42,4 +42,11 @@ final class export_test extends \advanced_testcase {
         $this->assertSame(42.5, export::cell(42.5));
         $this->assertNull(export::cell(null));
     }
+
+    public function test_headings_are_neutralised_too(): void {
+        // An activity name a teacher chose ends up in a manager's download heading.
+        [$columns, $rows] = export::safe(['o1' => '=HYPERLINK("http://x")', 'name' => 'Name'], [['o1' => '-', 'name' => 'Amy']]);
+        $this->assertSame(['o1' => '\'=HYPERLINK("http://x")', 'name' => 'Name'], $columns);
+        $this->assertSame([['o1' => "'-", 'name' => 'Amy']], $rows);
+    }
 }

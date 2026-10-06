@@ -42,7 +42,7 @@ class observer {
         $DB->delete_records('local_zoomattendance_teacher', ['cmid' => $event->objectid]);
         if (($event->other['modulename'] ?? '') === 'zoom') {
             sync::delete_for_zoomids([(int) $event->other['instanceid']]);
-            data_version::bump();
+            data_version::bump_course((int) $event->courseid);
         }
     }
 
@@ -112,6 +112,14 @@ class observer {
      * @param \core\event\base $event
      */
     public static function data_changed(\core\event\base $event): void {
-        data_version::bump();
+        if ($event instanceof \core\event\user_updated) {
+            // A user's name or suspension shows in the courses they are enrolled in. Single sign-on
+            // can update users at every login, so only those courses start a new version.
+            foreach (enrol_get_all_users_courses((int) $event->objectid, false, 'id') as $course) {
+                data_version::bump_course((int) $course->id);
+            }
+            return;
+        }
+        data_version::bump_course((int) $event->courseid);
     }
 }

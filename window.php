@@ -37,6 +37,10 @@ $action = optional_param('action', '', PARAM_ALPHA);
 require_login($course, false, $cm);
 $context = context_module::instance($cm->id);
 require_capability('local/zoomattendance:manage', $context);
+// While teacher attendance is tracked, a window decides how late a teacher joined.
+if (!manual::can_exclude($context)) {
+    require_capability('local/zoomattendance:excludetracked', $context);
+}
 
 $occurrence = $DB->get_record('local_zoomattendance_occ', ['id' => $occurrenceid, 'zoomid' => $cm->instance], '*', MUST_EXIST);
 if (!manual::can_set_window($occurrence)) {

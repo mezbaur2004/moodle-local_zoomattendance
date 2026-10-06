@@ -73,6 +73,7 @@ class provider implements
         $collection->add_database_table('local_zoomattendance_roster', [
             'userid' => 'privacy:metadata:roster:userid',
             'kind' => 'privacy:metadata:roster:kind',
+            'groupids' => 'privacy:metadata:roster:groupids',
             'timecreated' => 'privacy:metadata:roster:timecreated',
         ], 'privacy:metadata:roster');
         $collection->add_database_table('local_zoomattendance_teacher', [
@@ -338,7 +339,7 @@ class provider implements
     protected static function export_expected(\context_module $context, int $userid): void {
         global $DB;
         $rows = $DB->get_records_sql(
-            "SELECT ro.id, ro.kind, o.timestart, o.timeend
+            "SELECT ro.id, ro.kind, ro.groupids, o.timestart, o.timeend
              " . self::roster_context_join() . "
               WHERE ctx.id = :contextid AND ro.userid = :userid
            ORDER BY o.timestart",
@@ -354,6 +355,7 @@ class provider implements
                 'occurrencestart' => transform::datetime($row->timestart),
                 'occurrenceend' => transform::datetime($row->timeend),
                 'expectedas' => $row->kind,
+                'groupids' => trim((string) $row->groupids, ','),
             ];
         }
         writer::with_context($context)->export_data(

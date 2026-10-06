@@ -421,6 +421,8 @@ class renderer extends \plugin_renderer_base {
             teacher_attendance::STATE_NOTHELD => get_string('legend_notheld', 'local_zoomattendance'),
             attendance::STATE_EXCLUDED => get_string('legend_excluded', 'local_zoomattendance'),
             teacher_attendance::STATE_AWAITING => get_string('legend_awaiting', 'local_zoomattendance'),
+            attendance::STATE_NOREPORT => get_string('legend_noreport', 'local_zoomattendance'),
+            teacher_attendance::STATE_ELSEWHERE => get_string('legend_elsewhere', 'local_zoomattendance'),
             attendance::STATE_RESET => get_string('legend_reset', 'local_zoomattendance'),
         ];
         $list = '';
@@ -451,6 +453,10 @@ class renderer extends \plugin_renderer_base {
                 return get_string('note_awaiting', 'local_zoomattendance');
             case attendance::STATE_RESET:
                 return get_string('note_reset', 'local_zoomattendance');
+            case attendance::STATE_NOREPORT:
+                return get_string('note_noreport', 'local_zoomattendance');
+            case teacher_attendance::STATE_ELSEWHERE:
+                return get_string('note_elsewhere', 'local_zoomattendance');
             case attendance::STATE_EXCLUDED:
                 $by = $summary->excludedby[$occurrenceid] ?? null;
                 $note = $by ? get_string('excludedby', 'local_zoomattendance', fullname($by))
@@ -569,6 +575,8 @@ class renderer extends \plugin_renderer_base {
             attendance::STATE_EVALUATED => 'primary',
             teacher_attendance::STATE_NOTHELD => 'danger',
             teacher_attendance::STATE_AWAITING => 'secondary',
+            attendance::STATE_NOREPORT => 'secondary',
+            teacher_attendance::STATE_ELSEWHERE => 'secondary',
         ];
         $variant = $classes[$status] ?? 'secondary';
         return html_writer::span(
@@ -600,7 +608,8 @@ class renderer extends \plugin_renderer_base {
      * @param moodle_url $baseurl
      * @param bool $canmanage
      * @param bool $masked Participant data is masked: no links to details.
-     * @param bool $canexclude Whether the viewer may exclude classes and include them again.
+     * @param bool $canexclude Whether the viewer may exclude classes, include them again and set
+     *     class windows (manual::can_exclude()).
      * @return string
      */
     public function occurrence_list(
@@ -652,7 +661,7 @@ class renderer extends \plugin_renderer_base {
             ];
             if ($canmanage) {
                 $actions = [$canexclude ? $this->exclude_toggle($occurrence, $baseurl, (int) $attendance->cm->id) : ''];
-                if (\local_zoomattendance\local\manual::can_set_window($occurrence)) {
+                if ($canexclude && \local_zoomattendance\local\manual::can_set_window($occurrence)) {
                     $actions[] = html_writer::link(
                         new moodle_url('/local/zoomattendance/window.php', [
                             'id' => $attendance->cm->id,
