@@ -110,3 +110,16 @@
     height: 10px;
     border-radius: 5px;
 }
+
+/* Contact numbers under a name, each with links to call and to message on WhatsApp. */
+.local-zoomattendance-phones {
+    font-weight: normal;
+}
+
+.local-zoomattendance-phones .local-zoomattendance-phone + .local-zoomattendance-phone {
+    margin-top: .15rem;
+}
+
+.local-zoomattendance-phones .local-zoomattendance-phone-link {
+    text-decoration: none;
+}

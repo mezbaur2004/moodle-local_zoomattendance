@@ -25,6 +25,7 @@
 require(__DIR__ . '/../../config.php');
 
 use local_zoomattendance\form\teacher_filter;
+use local_zoomattendance\local\phone;
 use local_zoomattendance\local\settings;
 use local_zoomattendance\local\status;
 use local_zoomattendance\local\teacher_overview;
@@ -90,7 +91,12 @@ $columns += [
 ];
 
 if ($download !== '') {
-    $filecolumns = ($withteacher ? ['teacher' => $columns['teacher']] : []) + [
+    // Numbers only for viewers who see them in at least one course; per row where they do.
+    $phones = $withteacher && array_filter($rows, function ($row) {
+        return phone::can_view(context_course::instance($row->course->id));
+    });
+    $filecolumns = ($withteacher ? ['teacher' => $columns['teacher']] : [])
+        + ($phones ? ['phones' => get_string('phones', 'local_zoomattendance')] : []) + [
         'role' => get_string('role'),
         'course' => get_string('course'),
         'category' => get_string('category'),
@@ -112,6 +118,9 @@ if ($download !== '') {
     $records = [];
     foreach ($rows as $row) {
         $record = $withteacher ? ['teacher' => fullname($row->user)] : [];
+        if ($phones) {
+            $record['phones'] = phone::download_text(phone::for_viewer($row->user, context_course::instance($row->course->id)));
+        }
         $record['role'] = $row->role;
         $record['course'] = format_string($row->course->fullname, true, ['escape' => false]);
         $record['category'] = $categorynames[$row->course->category] ?? '';
@@ -166,7 +175,8 @@ if (!$rows) {
     foreach ($rows as $row) {
         $cells = [];
         if ($withteacher) {
-            $cells[] = fullname($row->user);
+            $numbers = phone::for_viewer($row->user, context_course::instance($row->course->id));
+            $cells[] = fullname($row->user) . $output->phones($numbers);
         }
         $cells[] = s($row->role);
         // The course page opens on the same date range.

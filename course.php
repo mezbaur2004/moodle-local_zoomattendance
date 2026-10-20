@@ -26,6 +26,7 @@ require(__DIR__ . '/../../config.php');
 
 use local_zoomattendance\local\course_summary;
 use local_zoomattendance\local\headcount;
+use local_zoomattendance\local\phone;
 use local_zoomattendance\output\renderer;
 
 $id = required_param('id', PARAM_INT);
@@ -56,6 +57,10 @@ if (!$masked && !$nogroupaccess) {
 
 if ($download !== '' && $summary && $summary->activities) {
     $columns = ['fullname' => get_string('fullnameuser')];
+    $phones = phone::can_view($context);
+    if ($phones) {
+        $columns['phones'] = get_string('phones', 'local_zoomattendance');
+    }
     foreach ($summary->activities as $activity) {
         foreach ($activity->columns as $occurrenceid => $occurrence) {
             $columns['o' . $occurrenceid] = format_string($activity->cm->name, true, ['escape' => false]) . ' – ' .
@@ -66,6 +71,9 @@ if ($download !== '' && $summary && $summary->activities) {
     $rows = [];
     foreach ($summary->users as $userid => $user) {
         $record = ['fullname' => fullname($user)];
+        if ($phones) {
+            $record['phones'] = phone::download_text(phone::numbers($user));
+        }
         foreach ($summary->activities as $activity) {
             foreach ($activity->columns as $occurrenceid => $occurrence) {
                 $row = $summary->cells[$userid][$occurrenceid] ?? null;
@@ -78,7 +86,7 @@ if ($download !== '' && $summary && $summary->activities) {
     // Then, per class, how many of the expected students were present, partial and absent.
     $counts = headcount::from_summary($summary);
     foreach (['expected', 'overall', 'present', 'partial', 'absent'] as $key) {
-        $record = ['fullname' => get_string('students' . $key, 'local_zoomattendance')];
+        $record = ['fullname' => get_string('students' . $key, 'local_zoomattendance')] + ($phones ? ['phones' => ''] : []);
         foreach ($summary->activities as $activity) {
             foreach ($activity->columns as $occurrenceid => $occurrence) {
                 $record['o' . $occurrenceid] = $counts[$occurrenceid][$key] ?? 0;

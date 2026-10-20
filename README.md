@@ -47,6 +47,8 @@ Install into `local/zoomattendance` and complete the upgrade from
 | Measure attendance against | Scheduled length | Or the time the meeting actually ran inside the schedule |
 | Early / late margin | 30 / 30 min | How far outside a scheduled window a Zoom session may start or end and still match it |
 | Session gap for unscheduled meetings | 30 min | Sessions this close together form one class when there is no fixed schedule |
+| Numbers to show | Mobile phone, then Phone | Profile fields shown beside names (see *Contact numbers*) |
+| Default country code | 880 | Added to numbers written without one |
 
 Teachers with *Manage Zoom attendance settings* can override the enable switch, thresholds
 and denominator per activity (*Zoom attendance settings* in the activity's navigation).
@@ -133,7 +135,32 @@ verified behaviour of mod_zoom it relies on.
 | `local/zoomattendance:viewteacherreports` | manager | Every teacher's attendance |
 | `local/zoomattendance:viewownteacher` | teacher, editing teacher | Own teacher attendance |
 | `local/zoomattendance:viewnoneditingteachers` | editing teacher | Non-editing teachers' attendance |
+| `local/zoomattendance:viewphone` | teacher, editing teacher, manager | Contact numbers beside names, with call and WhatsApp links |
 | `local/zoomattendance:excludetracked` | manager | While teacher attendance is tracked: excluding classes, setting class windows, linking Zoom identities to teachers and choosing responsible teachers |
+
+## Contact numbers
+
+Beside each name in Zoom attendance (class report, course report, student page, teacher pages
+and the teacher overview), users with *View contact numbers* see the person's numbers from their
+profile (*Optional* > *Mobile phone* and *Phone*), each with a **Call** link (`tel:`) and a
+**WhatsApp** link (`wa.me`). On a phone or in the Moodle app they start the call or chat; on a
+computer they open the default calling app or WhatsApp Web. The downloads have them in a
+*Contact numbers* column. Viewers only ever see numbers of people whose attendance they can
+already see.
+
+Numbers are shown in one international form, with the *Default country code* for numbers written
+without one:
+
+| Typed | Shown |
+|---|---|
+| `01712345678`, `1712345678`, `01712-345678`, `(01712) 345678` | +8801712345678 |
+| `+8801712345678`, `8801712345678`, `008801712345678`, `+880 (0)1712345678` | +8801712345678 |
+| `+447700900123`, `00447700900123`, `447700900123` | +447700900123 |
+| `N/A`, `123`, text | as typed, without links |
+
+A number in both fields is shown once. Downloads write numbers without the `+`
+(`8801712345678`, as WhatsApp takes them), since spreadsheets read a leading `+` as a formula.
+Nothing is stored: numbers are read from the profile when a page is shown.
 
 ## Correcting attendance
 

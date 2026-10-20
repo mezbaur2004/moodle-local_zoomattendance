@@ -68,6 +68,9 @@ $PAGE->set_pagelayout('incourse');
 $output = $PAGE->get_renderer('local_zoomattendance');
 echo $output->header();
 echo $output->heading(get_string('userattendance', 'local_zoomattendance', fullname($user)));
+if (!$ownview) {
+    echo $output->phones(\local_zoomattendance\local\phone::for_viewer($user, $coursecontext), 'mb-3');
+}
 
 $capability = $ownview ? 'local/zoomattendance:viewown' : 'local/zoomattendance:viewreports';
 $coursesummary = course_summary::build($course, 0, $user->id, $capability);

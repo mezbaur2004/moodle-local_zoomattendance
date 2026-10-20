@@ -27,6 +27,7 @@ require(__DIR__ . '/../../config.php');
 use local_zoomattendance\form\teacher_filter;
 use local_zoomattendance\local\attendance;
 use local_zoomattendance\local\headcount;
+use local_zoomattendance\local\phone;
 use local_zoomattendance\local\settings;
 use local_zoomattendance\local\teacher_access;
 use local_zoomattendance\local\teacher_attendance;
@@ -80,8 +81,10 @@ if (
 
 if ($download !== '' && $summary && $summary->classes) {
     // One row per class and teacher, so the file sorts and filters well in a spreadsheet.
-    $columns = [
-        'teacher' => get_string('teacher', 'local_zoomattendance'),
+    $phones = phone::can_view($context);
+    $columns = ['teacher' => get_string('teacher', 'local_zoomattendance')]
+        + ($phones ? ['phones' => get_string('phones', 'local_zoomattendance')] : [])
+        + [
         'role' => get_string('role'),
         'course' => get_string('course'),
         'class' => get_string('class', 'local_zoomattendance'),
@@ -112,8 +115,9 @@ if ($download !== '' && $summary && $summary->classes) {
                 $evaluated && isset($summary->selflinked[$userid][$class->occurrence->id])
                     ? [get_string('selflinked', 'local_zoomattendance')] : []
             ));
-            $record = [
-                'teacher' => fullname($user),
+            $record = ['teacher' => fullname($user)]
+                + ($phones ? ['phones' => phone::download_text(phone::numbers($user))] : [])
+                + [
                 'role' => $summary->roles[$userid] ?? '',
                 'course' => format_string($course->fullname, true, ['context' => $context, 'escape' => false]),
                 'class' => format_string($class->cm->name, true, ['escape' => false]),
@@ -163,7 +167,7 @@ if (!$tracking) {
         echo $output->notification(get_string($onlyown ? 'nomyclasses' : 'noteacherclasses', 'local_zoomattendance'), 'info');
     } else {
         echo html_writer::tag('p', get_string('teachersummary_help', 'local_zoomattendance'), ['class' => 'text-muted']);
-        echo $output->teacher_table($summary, $headcounts);
+        echo $output->teacher_table($summary, $headcounts, $context);
         echo $output->download_dataformat_selector(
             get_string('downloadclasses', 'local_zoomattendance'),
             $url->out_omit_querystring(),

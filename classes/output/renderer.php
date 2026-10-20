@@ -29,6 +29,7 @@ use html_writer;
 use local_zoomattendance\local\attendance;
 use local_zoomattendance\local\course_summary;
 use local_zoomattendance\local\headcount;
+use local_zoomattendance\local\phone;
 use local_zoomattendance\local\status;
 use local_zoomattendance\local\summary;
 use local_zoomattendance\local\sync;
@@ -40,6 +41,43 @@ use moodle_url;
  * Renders attendance tables.
  */
 class renderer extends \plugin_renderer_base {
+    /**
+     * A person's contact numbers, under their name: each number with links to call it and to
+     * message it on WhatsApp. A value that is not a phone number is shown as typed, without links.
+     *
+     * @param \stdClass[] $numbers From phone::numbers().
+     * @param string $class Extra classes.
+     * @return string '' when there are none.
+     */
+    public function phones(array $numbers, string $class = ''): string {
+        if (!$numbers) {
+            return '';
+        }
+        $items = [];
+        foreach ($numbers as $number) {
+            $item = html_writer::span(s($number->text), 'local-zoomattendance-phone-number');
+            if ($number->digits !== null) {
+                $call = get_string('phonecall_label', 'local_zoomattendance', $number->text);
+                $item .= ' ' . html_writer::link(phone::call_url($number), get_string('phonecall', 'local_zoomattendance'), [
+                    'class' => 'badge bg-light badge-light text-dark border local-zoomattendance-phone-link',
+                    'title' => $call,
+                    'aria-label' => $call,
+                ]);
+                $whatsapp = get_string('phonewhatsapp_label', 'local_zoomattendance', $number->text);
+                $label = get_string('phonewhatsapp', 'local_zoomattendance');
+                $item .= ' ' . html_writer::link(phone::whatsapp_url($number), $label, [
+                    'class' => 'badge bg-success badge-success text-white local-zoomattendance-phone-link',
+                    'title' => $whatsapp,
+                    'aria-label' => $whatsapp,
+                    'target' => '_blank',
+                    'rel' => 'noopener noreferrer',
+                ]);
+            }
+            $items[] = html_writer::div($item, 'local-zoomattendance-phone text-nowrap');
+        }
+        return html_writer::div(implode('', $items), trim('local-zoomattendance-phones small ' . $class));
+    }
+
     /**
      * Seconds as h:mm.
      *
@@ -275,11 +313,15 @@ class renderer extends \plugin_renderer_base {
         $sitedefaults = \local_zoomattendance\local\settings::site_defaults();
         $body = '';
         $users = $userids === null ? $summary->users : array_intersect_key($summary->users, array_flip($userids));
+        $phones = $courseid && phone::can_view(\context_course::instance($courseid));
         foreach ($users as $userid => $user) {
             $cells = [html_writer::tag('th', html_writer::link(new moodle_url(
                 '/local/zoomattendance/user.php',
                 ['course' => $courseid, 'user' => $userid]
-            ), fullname($user)), ['class' => 'local-zoomattendance-name', 'scope' => 'row'])];
+            ), fullname($user)) . ($phones ? $this->phones(phone::numbers($user)) : ''), [
+                'class' => 'local-zoomattendance-name',
+                'scope' => 'row',
+            ])];
             foreach ($summary->activities as $activity) {
                 foreach ($activity->columns as $occurrenceid => $occurrence) {
                     $row = $summary->cells[$userid][$occurrenceid] ?? null;
@@ -320,9 +362,11 @@ class renderer extends \plugin_renderer_base {
      * @param teacher_summary $summary
      * @param array[]|null $headcounts Students per class, from headcount::for_viewer(), or null to
      *     leave the Students column out.
+     * @param \context|null $context The course, to show the teachers' numbers to viewers with
+     *     viewphone; null for none.
      * @return string
      */
-    public function teacher_table(teacher_summary $summary, ?array $headcounts = null): string {
+    public function teacher_table(teacher_summary $summary, ?array $headcounts = null, ?\context $context = null): string {
         $head = [
             html_writer::tag('th', get_string('date'), ['scope' => 'col']),
             html_writer::tag('th', get_string('class', 'local_zoomattendance'), ['scope' => 'col']),
@@ -333,10 +377,12 @@ class renderer extends \plugin_renderer_base {
                 'title' => get_string('headcount_help', 'local_zoomattendance'),
             ]);
         }
+        $phones = $context && phone::can_view($context);
         foreach ($summary->users as $userid => $user) {
             $role = $summary->roles[$userid] ?? '';
             $rolelabel = $role === '' ? '' : html_writer::div(s($role), 'small text-muted fw-normal font-weight-normal');
-            $head[] = html_writer::tag('th', fullname($user) . $rolelabel, ['scope' => 'col']);
+            $numbers = $phones ? $this->phones(phone::numbers($user), 'fw-normal font-weight-normal') : '';
+            $head[] = html_writer::tag('th', fullname($user) . $rolelabel . $numbers, ['scope' => 'col']);
         }
 
         $body = '';
@@ -795,6 +841,7 @@ class renderer extends \plugin_renderer_base {
         uasort($rows, function ($a, $b) {
             return strcmp(fullname($a->user), fullname($b->user));
         });
+        $phones = phone::can_view($attendance->context);
         foreach ($rows as $row) {
             $userurl = new moodle_url(
                 '/local/zoomattendance/user.php',
@@ -822,6 +869,9 @@ class renderer extends \plugin_renderer_base {
                     'badge badge-secondary bg-secondary text-dark',
                     ['title' => get_string('teacherbadge_help', 'local_zoomattendance')]
                 );
+            }
+            if ($phones) {
+                $name .= $this->phones(phone::numbers($row->user));
             }
             $cells = [$name];
             foreach ($identityfields as $field) {

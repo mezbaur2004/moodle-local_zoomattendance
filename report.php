@@ -26,6 +26,7 @@ require(__DIR__ . '/../../config.php');
 
 use local_zoomattendance\local\attendance;
 use local_zoomattendance\local\manual;
+use local_zoomattendance\local\phone;
 use local_zoomattendance\local\source\zoom_source;
 use local_zoomattendance\local\sync;
 use local_zoomattendance\output\renderer;
@@ -107,6 +108,10 @@ if ($occurrenceid && !$masked && !$nogroupaccess) {
     if ($download !== '') {
         $identityfields = $attendance->identity_fields();
         $columns = ['fullname' => get_string('fullnameuser')];
+        $phones = phone::can_view($context);
+        if ($phones) {
+            $columns['phones'] = get_string('phones', 'local_zoomattendance');
+        }
         foreach ($identityfields as $field) {
             $columns[$field] = \core_user\fields::get_display_name($field);
         }
@@ -128,6 +133,9 @@ if ($occurrenceid && !$masked && !$nogroupaccess) {
         foreach ($sections as $section => $sectionrows) {
             foreach ($sectionrows as $row) {
                 $record = ['fullname' => !empty($row->user) ? fullname($row->user) : $row->displayname];
+                if ($phones) {
+                    $record['phones'] = !empty($row->user) ? phone::download_text(phone::numbers($row->user)) : '';
+                }
                 foreach ($identityfields as $field) {
                     $record[$field] = !empty($row->user) ? ($row->user->$field ?? '') : '';
                 }
