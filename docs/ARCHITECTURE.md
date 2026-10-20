@@ -1261,6 +1261,26 @@ From a review that assumed the plugin was written by someone else and tried to b
 * Not fixed: an unmatched participant whose email or name mod_zoom changes in place keeps its old
   identity until the participant row itself changes.
 
+## C18. 0.6.0 contact numbers
+
+- `local\phone` reads `phone2` (Mobile phone) then `phone1` (Phone), per the `phonefields`
+  setting, and normalises each with the `phonecountrycode` setting (default 880): spaces, dashes,
+  dots and brackets dropped; a leading `+` or `00` is international; else a leading `0` becomes
+  the country code, up to 10 digits get it in front, and longer numbers are international without
+  their `+`; a trunk `0` after the country code is dropped. 8 to 15 digits (E.164), not starting
+  with 0, or the value is shown as typed without links. Values with letters are never numbers.
+- Capability `viewphone` (course level; teacher, editing teacher, manager). Numbers are shown only
+  where the person already is: the viewer's existing access decides whose rows appear, viewphone
+  only whether numbers appear in them. Checked in the context of the page (module for the class
+  report, course elsewhere, each row's course in the overview).
+- `attendance::load_users()` always loads both phone fields, so cached summaries need no
+  per-viewer key; the check is at rendering. Profile changes reach the summaries through the
+  `user_updated` observer's course bump.
+- Downloads write digits without `+`: spreadsheets and Moodle's formula guard would otherwise add
+  an apostrophe to `+...`.
+- Links: `tel:+<digits>` and `https://wa.me/<digits>` (new tab). Text badges, not icons: Moodle
+  4.1–5.0 share no phone or WhatsApp icon.
+
 ## Decisions
 
 All open questions were resolved by adopting the proposed defaults.
@@ -1303,3 +1323,4 @@ All open questions were resolved by adopting the proposed defaults.
 | **D34** | Missing participant reports | Since 0.5.0, a held class with no participant is *No participant report*, counted for nobody (C17). |
 | **D35** | Tracking pauses | Since 0.5.0, switching teacher tracking off and on records the pause; classes in it are never Not held (C17). |
 | **D36** | Restored times | Since 0.5.0, restored classes keep the times they took place; course date offsets do not apply (C17). |
+| **D37** | Contact numbers | Since 0.6.0, profile Mobile phone and Phone beside names for `viewphone`, in one international form with a default country code, with call and WhatsApp links (C18). |

@@ -504,7 +504,7 @@ class attendance {
     }
 
     /**
-     * Load users with name and identity fields.
+     * Load users with name and identity fields, and the phone fields for viewers with viewphone.
      *
      * @param int[] $userids
      * @return \stdClass[]
@@ -514,7 +514,9 @@ class attendance {
         if (!$userids) {
             return [];
         }
-        $fields = \core_user\fields::for_name()->with_identity($this->context, false)->get_sql('u', true, '', '', false);
+        $fields = \core_user\fields::for_name()->with_identity($this->context, false)
+            ->including(...phone::FIELD_CHOICES['both'])
+            ->get_sql('u', true, '', '', false);
         [$insql, $params] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'lzal');
         $sql = "SELECT u.id, {$fields->selects}
                   FROM {user} u {$fields->joins}

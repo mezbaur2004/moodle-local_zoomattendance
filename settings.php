@@ -159,6 +159,30 @@ if ($hassiteconfig) {
             '/^(0|[3-9]\d|[1-9]\d{2,4})$/'
         ));
 
+        $settings->add(new admin_setting_heading(
+            'local_zoomattendance/phones',
+            new lang_string('phones', 'local_zoomattendance'),
+            new lang_string('phones_desc', 'local_zoomattendance')
+        ));
+        $settings->add(new admin_setting_configselect(
+            'local_zoomattendance/phonefields',
+            new lang_string('phonefields', 'local_zoomattendance'),
+            new lang_string('phonefields_desc', 'local_zoomattendance'),
+            'both',
+            [
+                'both' => new lang_string('phonefields_both', 'local_zoomattendance'),
+                'mobile' => new lang_string('phonefields_mobile', 'local_zoomattendance'),
+                'phone' => new lang_string('phonefields_phone', 'local_zoomattendance'),
+            ]
+        ));
+        $settings->add(new admin_setting_configtext(
+            'local_zoomattendance/phonecountrycode',
+            new lang_string('phonecountrycode', 'local_zoomattendance'),
+            new lang_string('phonecountrycode_desc', 'local_zoomattendance'),
+            \local_zoomattendance\local\phone::DEFAULT_COUNTRY_CODE,
+            '/^\d{0,4}$/'
+        ));
+
         // Thresholds and the rest change what reports show: cached summaries must not outlive them.
         foreach ($settings->settings as $setting) {
             if (empty($setting->updatedcallback)) {

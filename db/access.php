@@ -100,4 +100,14 @@ $capabilities = [
             'editingteacher' => CAP_ALLOW,
         ],
     ],
+    'local/zoomattendance:viewphone' => [
+        'riskbitmask' => RISK_PERSONAL,
+        'captype' => 'read',
+        'contextlevel' => CONTEXT_COURSE,
+        'archetypes' => [
+            'teacher' => CAP_ALLOW,
+            'editingteacher' => CAP_ALLOW,
+            'manager' => CAP_ALLOW,
+        ],
+    ],
 ];

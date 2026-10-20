@@ -1,5 +1,20 @@
 # Changes
 
+## 0.6.0 (2026102000)
+
+- **Contact numbers beside names.** Wherever Zoom attendance shows a person, users with the new
+  *View contact numbers* capability (managers, teachers and non-editing teachers by default, not
+  students) see the person's Mobile phone and Phone from their profile, with **Call** (`tel:`) and
+  **WhatsApp** (`wa.me`) links. That covers the class report, course report, student page, teacher
+  pages and the all-courses teacher overview. The downloads get a *Contact numbers* column.
+- Numbers typed any usual way are shown in one international form, using a default country code
+  (880): `01712345678`, `+8801712345678`, `8801712345678`, `008801712345678` and `01712-345678`
+  all become `+8801712345678`. A number in both fields is shown once. A value that is not a phone
+  number is shown as typed, without links. Downloads write the number without the `+`
+  (`8801712345678`), since spreadsheets read a leading `+` as a formula.
+- New settings under *Contact numbers*: which fields to show (Mobile phone then Phone, or one
+  only) and the default country code.
+
 ## 0.5.0 (2026100700)
 
 Fixes from an adversarial production review.
