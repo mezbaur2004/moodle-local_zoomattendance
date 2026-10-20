@@ -1281,6 +1281,25 @@ From a review that assumed the plugin was written by someone else and tried to b
 - Links: `tel:+<digits>` and `https://wa.me/<digits>` (new tab). Text badges, not icons: Moodle
   4.1–5.0 share no phone or WhatsApp icon.
 
+## C19. 0.7.0 class list changes
+
+- The roster row gains `source` (frozen, joined, added), `removed`, `reason`, `usermodified` and
+  `timemodified`. `roster::load()` skips removed rows, so `is_expected()` and every report follow.
+  A removed row stays as a tombstone: the automatic rule skips anyone with any row.
+- `roster::add_joiners($cm, $userids)`: results matched to a user with time attended, on a frozen
+  (not restored) class, with no roster row; added when the user is now enrolled with betracked or
+  betrackedteacher (enrolled join, visibility ignored), the earliest active enrolment was created
+  after the class ended, and, for teachers, they are among the responsible teachers when any are
+  set. Runs after every instance sync (catches identity links made later) and on
+  user_enrolment_created/updated and role_assigned for the user's course. The upgrade forces a
+  full pass.
+- `roster::add_by_hand()` / `remove_by_hand()` need a reason and a frozen class, record who and
+  when, bump the course and log classlist_added / classlist_removed. `roster::can_edit()`:
+  students' lists with manage; teachers' with `manual::can_exclude()`.
+- `course_summary` and the user page include hidden and restricted activities
+  (`!deletioninprogress`, capability in the module): the frozen list already says who counted.
+  Activity links in the course report only when `uservisible`.
+
 ## Decisions
 
 All open questions were resolved by adopting the proposed defaults.
@@ -1324,3 +1343,6 @@ All open questions were resolved by adopting the proposed defaults.
 | **D35** | Tracking pauses | Since 0.5.0, switching teacher tracking off and on records the pause; classes in it are never Not held (C17). |
 | **D36** | Restored times | Since 0.5.0, restored classes keep the times they took place; course date offsets do not apply (C17). |
 | **D37** | Contact numbers | Since 0.6.0, profile Mobile phone and Phone beside names for `viewphone`, in one international form with a default country code, with call and WhatsApp links (C18). |
+| **D38** | Joined before enrolment | Since 0.7.0, people matched to a class they joined, enrolled only after it, are added to its list once enrolled with a tracked capability (C19). |
+| **D39** | Class list edits | Since 0.7.0, ended classes' lists can be changed by hand with a reason; removals are tombstones the automatic rule respects (C19). |
+| **D40** | Hidden activities | Since 0.7.0, hidden and restricted activities' classes show on the student's page and the course report, as in course overall (C19). |

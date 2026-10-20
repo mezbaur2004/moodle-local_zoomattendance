@@ -89,8 +89,9 @@ if (isset($coursesummary->overall[$user->id])) {
 }
 
 $shown = 0;
+// Hidden and restricted activities too, as in course overall: attendance is not secret.
 foreach (get_fast_modinfo($course)->get_instances_of('zoom') as $cm) {
-    if (!$cm->uservisible) {
+    if ($cm->deletioninprogress) {
         continue;
     }
     $context = context_module::instance($cm->id);

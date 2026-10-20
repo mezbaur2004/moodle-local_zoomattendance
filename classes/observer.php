@@ -25,6 +25,7 @@
 namespace local_zoomattendance;
 
 use local_zoomattendance\local\data_version;
+use local_zoomattendance\local\roster;
 use local_zoomattendance\local\sync;
 
 /**
@@ -70,6 +71,7 @@ class observer {
         $DB->set_field('local_zoomattendance_occ', 'usermodified', 0, ['usermodified' => $event->objectid]);
         $DB->set_field('local_zoomattendance_idmap', 'usermodified', 0, ['usermodified' => $event->objectid]);
         $DB->set_field('local_zoomattendance_teacher', 'usermodified', 0, ['usermodified' => $event->objectid]);
+        $DB->set_field('local_zoomattendance_roster', 'usermodified', 0, ['usermodified' => $event->objectid]);
         data_version::bump();
     }
 
@@ -112,6 +114,19 @@ class observer {
      * @param \core\event\base $event
      */
     public static function data_changed(\core\event\base $event): void {
+        if (
+            $event instanceof \core\event\user_enrolment_created || $event instanceof \core\event\user_enrolment_updated
+                || $event instanceof \core\event\role_assigned
+        ) {
+            // Someone who joined classes before they were enrolled counts for them from now.
+            try {
+                if ($event->courseid && $event->relateduserid) {
+                    roster::add_course_joiners((int) $event->courseid, [(int) $event->relateduserid]);
+                }
+            } catch (\Throwable $e) {
+                debugging('local_zoomattendance: adding joined classes failed: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            }
+        }
         if ($event instanceof \core\event\user_updated) {
             // A user's name or suspension shows in the courses they are enrolled in. Single sign-on
             // can update users at every login, so only those courses start a new version.

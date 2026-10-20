@@ -30,6 +30,8 @@ use local_zoomattendance\local\attendance;
 use local_zoomattendance\local\course_summary;
 use local_zoomattendance\local\headcount;
 use local_zoomattendance\local\phone;
+use local_zoomattendance\local\roster;
+use local_zoomattendance\local\settings;
 use local_zoomattendance\local\status;
 use local_zoomattendance\local\summary;
 use local_zoomattendance\local\sync;
@@ -41,6 +43,113 @@ use moodle_url;
  * Renders attendance tables.
  */
 class renderer extends \plugin_renderer_base {
+    /**
+     * How someone got on a class's list, or why they are off it, as plain text.
+     *
+     * @param \stdClass $entry A local_zoomattendance_roster row.
+     * @param \stdClass|null $by Who changed it by hand, with name fields.
+     * @return string
+     */
+    public static function list_note(\stdClass $entry, ?\stdClass $by): string {
+        $a = (object) [
+            'name' => $by ? fullname($by) : get_string('unknownuser'),
+            'date' => userdate((int) $entry->timemodified, get_string('strftimedatetimeshort', 'langconfig')),
+            'reason' => (string) $entry->reason,
+        ];
+        if ((int) $entry->removed) {
+            return get_string('listnote_removed', 'local_zoomattendance', $a);
+        }
+        if ($entry->source === roster::SOURCE_JOINED) {
+            return get_string('listnote_joined', 'local_zoomattendance');
+        }
+        if ($entry->source === roster::SOURCE_ADDED) {
+            return get_string('listnote_added', 'local_zoomattendance', $a);
+        }
+        return get_string('listnote_frozen', 'local_zoomattendance');
+    }
+
+    /**
+     * A badge beside someone added to a class's list after it ended, with how in its tooltip.
+     *
+     * @param \stdClass|null $entry A local_zoomattendance_roster row.
+     * @param \stdClass[] $by Users who changed lists by hand, keyed by id.
+     * @return string '' for people on the list since the class ended.
+     */
+    public function list_badge(?\stdClass $entry, array $by): string {
+        if (!$entry || (int) $entry->removed || $entry->source === roster::SOURCE_FROZEN) {
+            return '';
+        }
+        return ' ' . html_writer::span(get_string('listadded', 'local_zoomattendance'), 'badge badge-info bg-info text-white', [
+            'title' => self::list_note($entry, $by[(int) $entry->usermodified] ?? null),
+        ]);
+    }
+
+    /**
+     * Users who changed list rows by hand, for list_note().
+     *
+     * @param \stdClass[] $entries local_zoomattendance_roster rows.
+     * @return \stdClass[] Keyed by id, with name fields.
+     */
+    public static function list_editors(array $entries): array {
+        global $DB;
+        $ids = [];
+        foreach ($entries as $entry) {
+            if ((int) $entry->usermodified) {
+                $ids[(int) $entry->usermodified] = true;
+            }
+        }
+        if (!$ids) {
+            return [];
+        }
+        $fields = \core_user\fields::for_name()->get_sql('', false, '', '', false)->selects;
+        return $DB->get_records_list('user', 'id', array_keys($ids), '', 'id, ' . $fields);
+    }
+
+    /**
+     * A button to add someone to a class's list or remove them, which asks why.
+     *
+     * @param moodle_url $url The class list.
+     * @param string $action add or remove.
+     * @param int $userid
+     * @param string $kind
+     * @param string $label String identifier.
+     * @return string
+     */
+    public function classlist_action(moodle_url $url, string $action, int $userid, string $kind, string $label): string {
+        return html_writer::link(
+            new moodle_url($url, ['action' => $action, 'user' => $userid, 'kind' => $kind]),
+            get_string($label, 'local_zoomattendance'),
+            ['class' => 'btn btn-sm ' . ($action === 'remove' ? 'btn-outline-danger' : 'btn-outline-primary')]
+        );
+    }
+
+    /**
+     * A table of the class list page.
+     *
+     * @param string[][] $rows Each with name, attended, note (HTML) and actions (HTML).
+     * @param string $notehead Heading of the note column, or '' for none.
+     * @return string
+     */
+    public function classlist_table(array $rows, string $notehead): string {
+        if (!$rows) {
+            return $this->notification(get_string('nousers', 'local_zoomattendance'), 'info', false);
+        }
+        $table = new html_table();
+        $table->attributes['class'] = 'generaltable table-sm';
+        $table->head = [get_string('fullnameuser'), get_string('attended', 'local_zoomattendance')];
+        if ($notehead !== '') {
+            $table->head[] = $notehead;
+        }
+        $table->head[] = get_string('actions');
+        foreach ($rows as $row) {
+            if ($notehead === '') {
+                unset($row[2]);
+            }
+            $table->data[] = array_values($row);
+        }
+        return html_writer::table($table);
+    }
+
     /**
      * A person's contact numbers, under their name: each number with links to call it and to
      * message it on WhatsApp. A value that is not a phone number is shown as typed, without links.
@@ -295,15 +404,19 @@ class renderer extends \plugin_renderer_base {
         $dates = [];
         foreach ($summary->activities as $cmid => $activity) {
             $courseid = $activity->cm->course;
-            $top[] = html_writer::tag('th', html_writer::link(
+            // Hidden or restricted activities are listed too; linked only for viewers who can open them.
+            $open = $activity->cm->uservisible;
+            $name = format_string($activity->cm->name);
+            $top[] = html_writer::tag('th', $open ? html_writer::link(
                 new moodle_url('/local/zoomattendance/report.php', ['id' => $cmid]),
-                format_string($activity->cm->name)
-            ), ['colspan' => count($activity->columns), 'class' => 'text-center']);
+                $name
+            ) : $name, ['colspan' => count($activity->columns), 'class' => 'text-center']);
             foreach ($activity->columns as $occurrence) {
-                $dates[] = html_writer::tag('th', html_writer::link(
+                $date = userdate($occurrence->timestart, get_string('strftimedatetimeshort', 'langconfig'));
+                $dates[] = html_writer::tag('th', $open ? html_writer::link(
                     new moodle_url('/local/zoomattendance/report.php', ['id' => $cmid, 'occurrence' => $occurrence->id]),
-                    userdate($occurrence->timestart, get_string('strftimedatetimeshort', 'langconfig'))
-                ), ['class' => 'text-nowrap']);
+                    $date
+                ) : $date, ['class' => 'text-nowrap']);
             }
         }
         $top[] = html_writer::tag('th', get_string('courseoverall', 'local_zoomattendance'), ['rowspan' => 2]);
@@ -386,6 +499,12 @@ class renderer extends \plugin_renderer_base {
         }
 
         $body = '';
+        $entries = roster::entries(array_map(function ($class) {
+            return (int) $class->occurrence->id;
+        }, $summary->classes));
+        $editors = self::list_editors(array_merge([], ...array_map(function ($kinds) {
+            return array_values($kinds[roster::KIND_TEACHER] ?? []);
+        }, array_values($entries))));
         foreach ($summary->classes as $class) {
             $occurrence = $class->occurrence;
             $label = html_writer::link(
@@ -396,6 +515,15 @@ class renderer extends \plugin_renderer_base {
             if ($note !== '') {
                 $label .= html_writer::div(s($note), 'small text-muted');
             }
+            $cmcontext = \context_module::instance($class->cm->id);
+            if ((int) ($occurrence->rosterfrozen ?? 0) > 0 && roster::can_edit($cmcontext, roster::KIND_TEACHER)) {
+                $listurl = ['id' => $class->cm->id, 'occurrence' => $occurrence->id];
+                $label .= html_writer::div(html_writer::link(
+                    new moodle_url('/local/zoomattendance/classlist.php', $listurl),
+                    get_string('classlistpage', 'local_zoomattendance')
+                ), 'small');
+            }
+            $teacherentries = $entries[(int) $occurrence->id][roster::KIND_TEACHER] ?? [];
             $cells = [
                 html_writer::tag('th', s(self::window($occurrence)), ['scope' => 'row']),
                 html_writer::tag('td', $label),
@@ -407,6 +535,7 @@ class renderer extends \plugin_renderer_base {
                 $row = $summary->cells[$userid][$occurrence->id] ?? null;
                 $cells[] = html_writer::tag('td', $row
                     ? $this->teacher_cell($row, $class->state, isset($summary->selflinked[$userid][$occurrence->id]))
+                        . $this->list_badge($teacherentries[$userid] ?? null, $editors)
                     : html_writer::span('–', '', ['title' => get_string('notexpectedteacher', 'local_zoomattendance')]));
             }
             $body .= html_writer::tag('tr', implode('', $cells));
@@ -754,7 +883,23 @@ class renderer extends \plugin_renderer_base {
      * @return string
      */
     public function occurrence_detail(attendance $attendance, \stdClass $evaluation, bool $canlink = false): string {
+        $occurrence = $evaluation->occurrence;
         $output = $this->heading(get_string('expectedusers', 'local_zoomattendance'), 4);
+        // Who counts for an ended class can be changed by hand, with a reason.
+        if (
+            (int) ($occurrence->rosterfrozen ?? 0) > 0 && (roster::can_edit($attendance->context, roster::KIND_STUDENT)
+                || (settings::teacher_tracking() && roster::can_edit($attendance->context, roster::KIND_TEACHER)))
+        ) {
+            $output .= html_writer::div(html_writer::link(
+                new moodle_url('/local/zoomattendance/classlist.php', [
+                    'id' => $attendance->cm->id,
+                    'occurrence' => $occurrence->id,
+                ]),
+                get_string('classlistedit', 'local_zoomattendance'),
+                ['class' => 'btn btn-sm btn-outline-secondary']
+            ), 'mb-2');
+        }
+        $entries = roster::entries([(int) $occurrence->id])[(int) $occurrence->id][roster::KIND_STUDENT] ?? [];
         if ($evaluation->state === attendance::STATE_EVALUATED) {
             $counts = $evaluation->counts;
             $output .= $this->headcount([
@@ -762,7 +907,7 @@ class renderer extends \plugin_renderer_base {
                 'overall' => $counts[status::PRESENT] + $counts[status::PARTIAL],
             ] + $counts, true);
         }
-        $output .= $this->user_table($attendance, $evaluation->expected, true);
+        $output .= $this->user_table($attendance, $evaluation->expected, true, $entries);
         if ($evaluation->notexpected) {
             $output .= $this->heading(get_string('notexpectedusers', 'local_zoomattendance'), 4);
             $output .= html_writer::tag('p', get_string('notexpected_help', 'local_zoomattendance'), ['class' => 'text-muted']);
@@ -815,9 +960,10 @@ class renderer extends \plugin_renderer_base {
      * @param attendance $attendance
      * @param \stdClass[] $rows
      * @param bool $withstatus
+     * @param \stdClass[] $entries Class list rows, keyed by user id, for the Added badge.
      * @return string
      */
-    protected function user_table(attendance $attendance, array $rows, bool $withstatus): string {
+    protected function user_table(attendance $attendance, array $rows, bool $withstatus, array $entries = []): string {
         if (!$rows) {
             return $this->notification(get_string('nousers', 'local_zoomattendance'), 'info', false);
         }
@@ -842,6 +988,7 @@ class renderer extends \plugin_renderer_base {
             return strcmp(fullname($a->user), fullname($b->user));
         });
         $phones = phone::can_view($attendance->context);
+        $editors = self::list_editors($entries);
         foreach ($rows as $row) {
             $userurl = new moodle_url(
                 '/local/zoomattendance/user.php',
@@ -870,6 +1017,7 @@ class renderer extends \plugin_renderer_base {
                     ['title' => get_string('teacherbadge_help', 'local_zoomattendance')]
                 );
             }
+            $name .= $this->list_badge($entries[(int) $row->user->id] ?? null, $editors);
             if ($phones) {
                 $name .= $this->phones(phone::numbers($row->user));
             }
