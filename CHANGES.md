@@ -1,5 +1,20 @@
 # Changes
 
+## 0.7.0 (2026102001)
+
+- **Joined before they were enrolled.** Someone who joined a class by its link before they were
+  enrolled (a substitute teacher, a student enrolled late) is added to that class's list once
+  they are enrolled as a student or teacher, so the class counts for them instead of showing "–".
+  Only classes they joined, and only when they were enrolled after the class. The first sync
+  after the upgrade adds those already enrolled.
+- **Class list edits.** *Edit class list* on an ended class adds or removes people by hand, with a
+  reason, logged and kept with who made it. An *Added* badge marks them in the class and teacher
+  reports. Someone removed is never added back automatically. Teachers' lists need managers'
+  *Exclude classes while teacher attendance is tracked*, as for exclusions.
+- **Hidden and restricted activities count on the student's page and the course report**, as in
+  course overall: hiding an activity after its classes no longer hides students' attendance.
+- Backup, restore and the privacy provider cover the new list details.
+
 ## 0.6.0 (2026102000)
 
 - **Contact numbers beside names.** Wherever Zoom attendance shows a person, users with the new

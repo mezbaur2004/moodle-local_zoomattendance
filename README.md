@@ -101,6 +101,21 @@ rewrites past attendance or headcounts. A class the sync only reaches long after
 first sync after an upgrade, or after cron was down) is not frozen while its activity is hidden:
 it keeps following the enrolments, so hiding an old activity never drops its students.
 
+**Hidden and restricted activities still count.** Attendance is not secret, and teachers often
+hide a Zoom activity once its classes are over, so a hidden or restricted activity's classes stay
+in course overall and on the student's own page (shown without a link to an activity they cannot
+open). Who counts is still decided when each class ends: students the activity was hidden from,
+or restricted away from, at the time are not on its list.
+
+**Joined before they were enrolled.** Someone who joined a class by its link before they were
+enrolled in the course (a substitute teacher, a student enrolled late) is added to that class's
+list once they are enrolled with the student or teacher capability. It applies only to classes
+they joined and Zoom matched to their account, and only when they were enrolled after the class:
+they count as present or partial there, and are never absent from classes held before they
+arrived. Someone enrolled at the time but left off the list (the activity was hidden from them,
+or restricted to other groups) is not added, nor is a teacher outside an activity's responsible
+teachers.
+
 A participant is *partial* when they joined but are not present: they stayed below the
 present threshold (for example joined on time and left early) or joined after the late
 period.
@@ -186,6 +201,13 @@ decides how late a teacher joined, and a link adds someone's Zoom time to a teac
 A window change recomputes attendance immediately. An identity link applies to every Zoom
 activity of the course, so it is recomputed in the background within a few minutes.
 
+- **Changing who counts for a class.** *Edit class list* on an ended class's page lists who
+  counts for it, how each got there (since the class ended, added automatically after joining
+  before enrolment, or by hand), people who joined but are not on the list, and people removed
+  by hand. *Remove* and *Add* ask for a reason, which is shown with the change (an *Added* badge
+  in the class and teacher reports). Someone removed by hand is never added back automatically.
+  Students' lists need *Manage Zoom attendance settings*; teachers' lists, while teacher
+  attendance is tracked, also *Exclude classes while teacher attendance is tracked* (managers).
 - **Excluding a class.** *Exclude* in the class list asks for a reason, which is shown wherever
   the class is listed. Excluded classes count for nobody. While teacher attendance is tracked,
   only users with *Exclude classes while teacher attendance is tracked* (managers by default)

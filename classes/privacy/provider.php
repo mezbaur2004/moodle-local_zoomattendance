@@ -74,7 +74,12 @@ class provider implements
             'userid' => 'privacy:metadata:roster:userid',
             'kind' => 'privacy:metadata:roster:kind',
             'groupids' => 'privacy:metadata:roster:groupids',
+            'source' => 'privacy:metadata:roster:source',
+            'removed' => 'privacy:metadata:roster:removed',
+            'reason' => 'privacy:metadata:roster:reason',
+            'usermodified' => 'privacy:metadata:roster:usermodified',
             'timecreated' => 'privacy:metadata:roster:timecreated',
+            'timemodified' => 'privacy:metadata:roster:timemodified',
         ], 'privacy:metadata:roster');
         $collection->add_database_table('local_zoomattendance_teacher', [
             'userid' => 'privacy:metadata:teacher:userid',
@@ -156,8 +161,8 @@ class provider implements
             ['modname' => 'zoom', 'ctxlevel' => CONTEXT_MODULE, 'userid' => $userid]
         );
         $contextlist->add_from_sql(
-            "SELECT ctx.id " . self::roster_context_join() . " WHERE ro.userid = :userid",
-            ['modname' => 'zoom', 'ctxlevel' => CONTEXT_MODULE, 'userid' => $userid]
+            "SELECT ctx.id " . self::roster_context_join() . " WHERE ro.userid = :userid OR ro.usermodified = :usermodified",
+            ['modname' => 'zoom', 'ctxlevel' => CONTEXT_MODULE, 'userid' => $userid, 'usermodified' => $userid]
         );
         $contextlist->add_from_sql(
             "SELECT ctx.id " . self::teacher_context_join() . " WHERE t.userid = :userid OR t.usermodified = :usermodified",
@@ -204,6 +209,11 @@ class provider implements
             "SELECT ro.userid " . self::roster_context_join() . " WHERE ctx.id = :contextid",
             ['modname' => 'zoom', 'ctxlevel' => CONTEXT_MODULE, 'contextid' => $context->id]
         );
+        $userlist->add_from_sql(
+            'usermodified',
+            "SELECT ro.usermodified " . self::roster_context_join() . " WHERE ctx.id = :contextid AND ro.usermodified > 0",
+            ['modname' => 'zoom', 'ctxlevel' => CONTEXT_MODULE, 'contextid' => $context->id]
+        );
         foreach (['userid', 'usermodified'] as $field) {
             $userlist->add_from_sql(
                 $field,
@@ -236,6 +246,7 @@ class provider implements
                   ORDER BY o.timestart";
             self::export_changes($context, $userid);
             self::export_expected($context, $userid);
+            self::export_list_changes($context, $userid);
             $rows = $DB->get_records_sql(
                 $sql,
                 ['modname' => 'zoom', 'ctxlevel' => CONTEXT_MODULE, 'contextid' => $context->id, 'userid' => $userid]
@@ -339,7 +350,7 @@ class provider implements
     protected static function export_expected(\context_module $context, int $userid): void {
         global $DB;
         $rows = $DB->get_records_sql(
-            "SELECT ro.id, ro.kind, ro.groupids, o.timestart, o.timeend
+            "SELECT ro.id, ro.kind, ro.groupids, ro.source, ro.removed, ro.reason, o.timestart, o.timeend
              " . self::roster_context_join() . "
               WHERE ctx.id = :contextid AND ro.userid = :userid
            ORDER BY o.timestart",
@@ -356,11 +367,49 @@ class provider implements
                 'occurrenceend' => transform::datetime($row->timeend),
                 'expectedas' => $row->kind,
                 'groupids' => trim((string) $row->groupids, ','),
+                'howlisted' => $row->source,
+                'removed' => transform::yesno((int) $row->removed),
+                'reason' => $row->reason,
             ];
         }
         writer::with_context($context)->export_data(
             [get_string('pluginname', 'local_zoomattendance'), get_string('expected', 'local_zoomattendance')],
             (object) ['responsibleteacher' => transform::yesno($responsible), 'occurrences' => $data]
+        );
+    }
+
+    /**
+     * Export the changes a user made by hand to class lists in a Zoom activity.
+     *
+     * @param \context_module $context
+     * @param int $userid
+     */
+    protected static function export_list_changes(\context_module $context, int $userid): void {
+        global $DB;
+        $rows = $DB->get_records_sql(
+            "SELECT ro.id, ro.kind, ro.removed, ro.reason, ro.timemodified, o.timestart, o.timeend
+             " . self::roster_context_join() . "
+              WHERE ctx.id = :contextid AND ro.usermodified = :userid
+           ORDER BY o.timestart",
+            ['modname' => 'zoom', 'ctxlevel' => CONTEXT_MODULE, 'contextid' => $context->id, 'userid' => $userid]
+        );
+        if (!$rows) {
+            return;
+        }
+        $data = [];
+        foreach ($rows as $row) {
+            $data[] = (object) [
+                'occurrencestart' => transform::datetime($row->timestart),
+                'occurrenceend' => transform::datetime($row->timeend),
+                'listof' => $row->kind,
+                'removed' => transform::yesno((int) $row->removed),
+                'reason' => $row->reason,
+                'changedon' => transform::datetime($row->timemodified),
+            ];
+        }
+        writer::with_context($context)->export_data(
+            [get_string('pluginname', 'local_zoomattendance'), get_string('classlistchanges', 'local_zoomattendance')],
+            (object) ['changes' => $data]
         );
     }
 
@@ -457,6 +506,13 @@ class provider implements
                 'usermodified = :userid AND id IN (' . self::occurrences_sql() . ')',
                 $params
             );
+            $DB->set_field_select(
+                'local_zoomattendance_roster',
+                'usermodified',
+                0,
+                'usermodified = :userid AND occurrenceid IN (' . self::occurrences_sql() . ')',
+                $params
+            );
         }
     }
 
@@ -503,6 +559,13 @@ class provider implements
             'usermodified',
             0,
             "usermodified $insql AND id IN (" . self::occurrences_sql() . ')',
+            $params
+        );
+        $DB->set_field_select(
+            'local_zoomattendance_roster',
+            'usermodified',
+            0,
+            "usermodified $insql AND occurrenceid IN (" . self::occurrences_sql() . ')',
             $params
         );
     }

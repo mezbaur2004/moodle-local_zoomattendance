@@ -27,6 +27,7 @@ namespace local_zoomattendance;
 use local_zoomattendance\local\course_summary;
 use local_zoomattendance\local\manual;
 use local_zoomattendance\local\responsible;
+use local_zoomattendance\local\roster;
 use local_zoomattendance\local\status;
 use local_zoomattendance\local\sync;
 
@@ -108,6 +109,9 @@ final class backup_test extends \advanced_testcase {
         $DB->insert_record('local_zoomattendance_idmap', (object) ['courseid' => $course->id,
             'identitykey' => sync::unmatched_key((object) ['user_email' => 'phone@example.org', 'uuid' => '',
             'zoomuserid' => '', 'name' => 'Phone']), 'userid' => $ben->id, 'timecreated' => time()]);
+        // Ben is taken off the class's list by hand.
+        $original = $DB->get_record('local_zoomattendance_occ', ['zoomid' => $cm->instance], '*', MUST_EXIST);
+        roster::remove_by_hand($original, $cm, (int) $ben->id, roster::KIND_STUDENT, 'Left the course early');
 
         // With user data: the class, its figures, the frozen list, the settings and the links.
         $newcourse = get_course($this->backup_and_restore($course, true));
@@ -122,6 +126,13 @@ final class backup_test extends \advanced_testcase {
         $this->assertEquals($start, $occurrence->timestart);
         $this->assertStringStartsWith('r:', $occurrence->occurrencekey);
         $this->assertSame(3, $DB->count_records('local_zoomattendance_roster', ['occurrenceid' => $occurrence->id]));
+        // The change by hand comes along, with its reason and who made it.
+        $removed = $DB->get_record('local_zoomattendance_roster', ['occurrenceid' => $occurrence->id, 'userid' => $ben->id]);
+        $this->assertSame([1, 'Left the course early', (int) get_admin()->id], [
+            (int) $removed->removed,
+            $removed->reason,
+            (int) $removed->usermodified,
+        ]);
 
         // The figures are kept, even after a sync of the new course, which has no Zoom data. The
         // restored class stands for the scheduled one at the same time: no second class.
@@ -129,7 +140,7 @@ final class backup_test extends \advanced_testcase {
         $this->assertSame(1, $DB->count_records('local_zoomattendance_occ', ['zoomid' => $newcm->instance]));
         $summary = course_summary::build($newcourse);
         $this->assertSame(status::PRESENT, $summary->cells[$amy->id][$occurrence->id]->status);
-        $this->assertSame(status::ABSENT, $summary->cells[$ben->id][$occurrence->id]->status);
+        $this->assertArrayNotHasKey($occurrence->id, $summary->cells[$ben->id] ?? []);
 
         // A new identity link in the new course recomputes its classes, but not the restored one:
         // it would stay marked, and every sync would visit the activity again.

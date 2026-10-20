@@ -40,9 +40,12 @@ class course_summary {
     /**
      * Build the summary.
      *
-     * An activity is included when the viewer can see it and view its reports and tracking is
-     * enabled; an occurrence becomes a column when it is evaluated (past, with session data,
-     * not excluded or cancelled).
+     * An activity is included when the viewer holds the capability there and tracking is enabled,
+     * also when it is hidden or restricted: attendance is not secret, and teachers often hide a
+     * Zoom activity once its classes are over. Who counts for each class is decided when it ends
+     * (its frozen list), so a class of an activity hidden from students at the time has none. An
+     * occurrence becomes a column when it is evaluated (past, with session data, not excluded or
+     * cancelled).
      *
      * @param \stdClass $course
      * @param int $groupid Current group (0 for all).
@@ -58,7 +61,7 @@ class course_summary {
     ): self {
         $cms = [];
         foreach (get_fast_modinfo($course)->get_instances_of('zoom') as $cm) {
-            if ($cm->uservisible && has_capability($capability, \context_module::instance($cm->id))) {
+            if (!$cm->deletioninprogress && has_capability($capability, \context_module::instance($cm->id))) {
                 $cms[$cm->id] = $cm;
             }
         }

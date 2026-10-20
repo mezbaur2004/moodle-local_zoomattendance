@@ -454,6 +454,13 @@ class sync {
 
         // Classes that are over keep the users expected at them.
         roster::freeze_due($instance, $now);
+        // People who joined a class before they were enrolled, matched to them since.
+        try {
+            roster::add_joiners(get_fast_modinfo($instance->course)->get_cm($instance->cmid));
+        } catch (\moodle_exception $e) {
+            // The course module is gone: nothing to add to.
+            return;
+        }
     }
 
     /**

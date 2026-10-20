@@ -146,5 +146,26 @@ function xmldb_local_zoomattendance_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026100700, 'local', 'zoomattendance');
     }
 
+    if ($oldversion < 2026102001) {
+        // Changes to a frozen list: people who joined before they were enrolled, and changes by hand.
+        $table = new xmldb_table('local_zoomattendance_roster');
+        $fields = [
+            new xmldb_field('source', XMLDB_TYPE_CHAR, '10', null, XMLDB_NOTNULL, null, 'frozen', 'groupids'),
+            new xmldb_field('removed', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '0', 'source'),
+            new xmldb_field('reason', XMLDB_TYPE_CHAR, '255', null, null, null, null, 'removed'),
+            new xmldb_field('usermodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'reason'),
+            new xmldb_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'timecreated'),
+        ];
+        foreach ($fields as $field) {
+            if (!$dbman->field_exists($table, $field)) {
+                $dbman->add_field($table, $field);
+            }
+        }
+        // A full pass next: every activity's past classes get people who joined before they were enrolled.
+        unset_config('syncstate', 'local_zoomattendance');
+
+        upgrade_plugin_savepoint(true, 2026102001, 'local', 'zoomattendance');
+    }
+
     return true;
 }

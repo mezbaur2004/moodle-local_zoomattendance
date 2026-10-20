@@ -180,12 +180,18 @@ class restore_local_zoomattendance_plugin extends restore_local_plugin {
                 $groupids[] = (int) $new;
             }
         }
+        // Changes by hand keep their reason; who made them only when that user was restored too.
         $DB->insert_record('local_zoomattendance_roster', (object) [
             'occurrenceid' => $this->get_new_parentid('local_zoomattendance_occurrence'),
             'userid' => $userid,
             'kind' => $data->kind,
             'groupids' => $groupids ? ',' . implode(',', $groupids) . ',' : '',
+            'source' => $data->source ?? 'frozen',
+            'removed' => (int) ($data->removed ?? 0),
+            'reason' => $data->reason ?? null,
+            'usermodified' => !empty($data->usermodified) ? (int) $this->get_mappingid('user', $data->usermodified) : 0,
             'timecreated' => (int) $data->timecreated,
+            'timemodified' => (int) ($data->timemodified ?? $data->timecreated),
         ]);
     }
 
