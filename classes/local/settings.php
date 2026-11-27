@@ -162,6 +162,16 @@ class settings {
     }
 
     /**
+     * Whether a class that was not held counts as absent for its teachers. Off by default: the
+     * class is listed as not held, outside the teacher's classes, absences and percentage.
+     *
+     * @return bool
+     */
+    public static function teacher_notheld_absent(): bool {
+        return (bool) get_config('local_zoomattendance', 'teachernotheldabsent');
+    }
+
+    /**
      * Classes starting before this time are no longer kept (the retention period).
      *
      * @return int 0 when every class is kept.

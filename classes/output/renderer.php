@@ -593,7 +593,10 @@ class renderer extends \plugin_renderer_base {
             status::PRESENT => get_string('legend_present', 'local_zoomattendance', $a),
             status::PARTIAL => get_string('legend_partial', 'local_zoomattendance', $a),
             status::ABSENT => get_string('legend_absent', 'local_zoomattendance', $a),
-            teacher_attendance::STATE_NOTHELD => get_string('legend_notheld', 'local_zoomattendance'),
+            teacher_attendance::STATE_NOTHELD => get_string(
+                \local_zoomattendance\local\settings::teacher_notheld_absent() ? 'legend_notheld' : 'legend_notheld_apart',
+                'local_zoomattendance'
+            ),
             attendance::STATE_EXCLUDED => get_string('legend_excluded', 'local_zoomattendance'),
             teacher_attendance::STATE_AWAITING => get_string('legend_awaiting', 'local_zoomattendance'),
             attendance::STATE_NOREPORT => get_string('legend_noreport', 'local_zoomattendance'),
@@ -673,7 +676,9 @@ class renderer extends \plugin_renderer_base {
      * @return string
      */
     public static function teacher_counts(array $stats): string {
-        return get_string('teachercounts', 'local_zoomattendance', (object) [
+        // Not held is part of absent when it counts as absent, and apart from the classes otherwise.
+        $key = \local_zoomattendance\local\settings::teacher_notheld_absent() ? 'teachercounts' : 'teachercounts_apart';
+        return get_string($key, 'local_zoomattendance', (object) [
             'classes' => $stats['expected'],
             'present' => $stats[status::PRESENT],
             'partial' => $stats[status::PARTIAL],

@@ -144,6 +144,12 @@ if ($hassiteconfig) {
             24,
             $wholenumber
         ));
+        $settings->add(new admin_setting_configcheckbox(
+            'local_zoomattendance/teachernotheldabsent',
+            new lang_string('teachernotheldabsent', 'local_zoomattendance'),
+            new lang_string('teachernotheldabsent_desc', 'local_zoomattendance'),
+            0
+        ));
 
         $settings->add(new admin_setting_heading(
             'local_zoomattendance/retention',

@@ -230,9 +230,11 @@ Zoom classes.
   three are configurable. Teachers are always measured against the scheduled time.
 - **Late starts and early leaves:** each cell shows how many minutes late the teacher joined
   and how many minutes early they left.
-- **Classes that were not held** count as absent for their teachers once the Zoom plugin has
-  fetched meeting reports at least 24 hours (configurable) past the class **and** the host has a
-  later Zoom session on record. The Zoom plugin's report position alone is not proof: it also
+- **Classes that were not held** are marked *Not held* once the Zoom plugin has fetched meeting
+  reports at least 24 hours (configurable) past the class **and** the host has a later Zoom
+  session on record. By default they are listed but not counted: they are not among the
+  teacher's classes and do not lower their attendance. With *Classes not held count as absent*
+  on, they count as absent for every teacher expected at them. The Zoom plugin's report position alone is not proof: it also
   moves past meetings it skipped (hosts it does not fetch, hosts left out when Zoom's rate limit
   is hit, reports not ready yet). If the report task is failing, nothing is marked not held.
   Only classes with a fixed schedule can be detected, never classes from before teacher tracking
@@ -268,8 +270,9 @@ classes they do take, which matters where several teachers share a course's clas
 Each class shows a slim bar in its status colour, and each overall figure a bar with a line at
 the Present threshold: green from Present, orange from Partial, red below. Each page has a
 *What the statuses mean* legend. Besides Present, Partial and Absent, a class
-can show *Not held* (counts as absent), *Excluded*, *Awaiting Zoom report*, *No participant
-report*, *Held in another activity* or *Zoom data reset* (none of these counts).
+can show *Not held* (counts as absent only with *Classes not held count as absent* on),
+*Excluded*, *Awaiting Zoom report*, *No participant report*, *Held in another activity* or *Zoom
+data reset* (none of these counts).
 
 Managers see every teacher. Editing teachers see their own figures and the non-editing
 teachers' in their courses, but not other editing teachers. Non-editing teachers see only their
