@@ -104,6 +104,7 @@ class teacher_summary {
             $from,
             $to,
             attendance::identity_key(get_fast_modinfo($course)->get_instances_of('zoom')),
+            settings::teacher_notheld_absent(),
         ];
         // Not held also depends on the Zoom plugin's report watermark and on time.
         $stamp = (int) get_config('zoom', 'last_call_made_at') . '/' . intdiv(time(), HOURSECS);
@@ -202,6 +203,9 @@ class teacher_summary {
                         if ((int) $occurrence->usermodified === (int) $id) {
                             $stats['excludedbyself']++;
                         }
+                    } else if ($state === teacher_attendance::STATE_NOTHELD && $row->status === null) {
+                        // Not held and not counted as absent: listed, outside the classes and percentages.
+                        $stats['notheld']++;
                     } else if (in_array($row->status, [status::PRESENT, status::PARTIAL, status::ABSENT], true)) {
                         $stats['expected']++;
                         $stats[$row->status]++;
@@ -329,6 +333,7 @@ class teacher_summary {
             teacher_attendance::STATE_AWAITING,
             teacher_attendance::STATE_ELSEWHERE,
             attendance::STATE_NOREPORT,
+            teacher_attendance::STATE_NOTHELD,
         ], true);
     }
 }

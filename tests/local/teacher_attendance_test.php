@@ -219,8 +219,16 @@ final class teacher_attendance_test extends \advanced_testcase {
         $this->host_reported_at($end + 2 * HOURSECS);
         $evaluation = $this->evaluate_first($cm);
         $this->assertSame(teacher_attendance::STATE_NOTHELD, $evaluation->state);
+        // Not held is not counted by default: no status.
+        $this->assertNull($evaluation->rows[$teacher->id]->status);
+        $this->assertNull($evaluation->rows[$teacher->id]->percentage);
+        $this->assertFalse(teacher_attendance::counts(teacher_attendance::STATE_NOTHELD));
+        // With "Classes not held count as absent", it is an absence.
+        set_config('teachernotheldabsent', 1, 'local_zoomattendance');
+        $evaluation = $this->evaluate_first($cm);
         $this->assertSame(status::ABSENT, $evaluation->rows[$teacher->id]->status);
         $this->assertSame(0.0, $evaluation->rows[$teacher->id]->percentage);
+        $this->assertTrue(teacher_attendance::counts(teacher_attendance::STATE_NOTHELD));
 
         // A shorter configured delay applies too.
         set_config('last_call_made_at', $end + 2 * HOURSECS, 'zoom');
@@ -262,6 +270,8 @@ final class teacher_attendance_test extends \advanced_testcase {
 
     public function test_course_summary_counts(): void {
         global $DB;
+        // Not held counted as absent (see test_course_summary_not_held_apart() for the default).
+        set_config('teachernotheldabsent', 1, 'local_zoomattendance');
         $dg = $this->getDataGenerator();
         $teacher = $dg->create_and_enrol($this->course, 'editingteacher');
         $other = $dg->create_and_enrol($this->course, 'teacher');
@@ -309,6 +319,59 @@ final class teacher_attendance_test extends \advanced_testcase {
         $this->assertEquals([$teacher->id], array_keys($mine->users));
         $range = teacher_summary::build($this->course, null, $this->mins(12 * 60), $this->mins(36 * 60));
         $this->assertCount(1, $range->activities);
+    }
+
+    /**
+     * By default a class that was not held is listed and noted, but is not one of the teacher's
+     * classes, absences or attendance: a class that did not take place does not lower a teacher's
+     * figures.
+     */
+    public function test_course_summary_not_held_apart(): void {
+        global $DB;
+        $dg = $this->getDataGenerator();
+        $teacher = $dg->create_and_enrol($this->course, 'editingteacher');
+
+        // Held: the teacher joined 42 of 60 minutes.
+        $held = $this->create_class();
+        $session = $this->generator->create_session($held, $this->mins(0), $this->mins(60));
+        $this->generator->create_participant($session, $this->mins(8), $this->mins(50), ['userid' => $teacher->id]);
+        // Not held.
+        $notheld = $this->create_class(24 * 60);
+        sync::sync_all();
+        $this->known_in_advance();
+        set_config('last_call_made_at', time(), 'zoom');
+        $this->host_reported_at($this->mins(3 * 24 * 60));
+
+        $summary = teacher_summary::build($this->course);
+        $this->assertCount(2, $summary->activities);
+        $this->assertSame([teacher_attendance::STATE_NOTHELD], array_values($summary->activities[$notheld->id]->states));
+        $stats = $summary->stats[$teacher->id];
+        $this->assertSame(1, $stats['expected']);
+        $this->assertSame(1, $stats[status::PARTIAL]);
+        $this->assertSame(0, $stats[status::ABSENT]);
+        $this->assertSame(1, $stats['notheld']);
+        // 42 of 60 minutes, like When joined.
+        $this->assertEqualsWithDelta(70.0, $summary->overall[$teacher->id]->percentage(), 0.01);
+        $this->assertEqualsWithDelta(70.0, $summary->joined[$teacher->id]->percentage(), 0.01);
+        $this->assertSame(
+            '1: 0 present, 1 partial, 0 absent; 1 not held',
+            \local_zoomattendance\output\renderer::teacher_counts($stats)
+        );
+
+        // A teacher with only classes that were not held keeps a row in the overview.
+        $manager = $dg->create_user();
+        role_assign($DB->get_field('role', 'id', ['shortname' => 'manager']), $manager->id, \context_system::instance()->id);
+        $rows = teacher_overview::rows((int) $manager->id, false, $this->mins(12 * 60), time());
+        $this->assertCount(1, $rows);
+        $this->assertSame(0, $rows[0]->stats['expected']);
+        $this->assertSame(1, $rows[0]->stats['notheld']);
+        $this->assertNull($rows[0]->overall);
+
+        // The setting is part of the cached summary's key.
+        set_config('teachernotheldabsent', 1, 'local_zoomattendance');
+        $stats = teacher_summary::build($this->course)->stats[$teacher->id];
+        $this->assertSame(2, $stats['expected']);
+        $this->assertSame(1, $stats[status::ABSENT]);
     }
 
     /**

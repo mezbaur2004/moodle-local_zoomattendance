@@ -104,7 +104,7 @@ if ($download !== '') {
         status::PRESENT => get_string('status_present', 'local_zoomattendance'),
         status::PARTIAL => get_string('status_partial', 'local_zoomattendance'),
         status::ABSENT => get_string('status_absent', 'local_zoomattendance'),
-        'notheld' => get_string('ofwhichnotheld', 'local_zoomattendance'),
+        'notheld' => get_string(settings::teacher_notheld_absent() ? 'ofwhichnotheld' : 'status_notheld', 'local_zoomattendance'),
         'overall' => get_string('teacheroverall', 'local_zoomattendance'),
         'joined' => get_string('classesjoined', 'local_zoomattendance'),
         'joinedoverall' => get_string('whenjoined', 'local_zoomattendance'),
@@ -166,7 +166,8 @@ if (!$rows) {
     $empty = $mine ? 'noteacherdatarangemine' : 'noteacherdatarange';
     echo $output->notification(get_string($empty, 'local_zoomattendance', $range), 'info');
 } else {
-    echo html_writer::tag('p', get_string('teachersoverview_help', 'local_zoomattendance'), ['class' => 'text-muted']);
+    $help = settings::teacher_notheld_absent() ? 'teachersoverview_help' : 'teachersoverview_help_apart';
+    echo html_writer::tag('p', get_string($help, 'local_zoomattendance'), ['class' => 'text-muted']);
     $table = new html_table();
     $table->caption = $title;
     $table->captionhide = true;

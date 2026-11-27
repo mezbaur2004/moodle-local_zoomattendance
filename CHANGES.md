@@ -1,5 +1,16 @@
 # Changes
 
+## 0.8.0 (2026112700)
+
+- **Classes not held no longer count as absent by default.** A scheduled class with no Zoom
+  session is still marked *Not held*, shown in the teacher reports and named in the notes, but it
+  is no longer one of the teacher's classes or absences and no longer lowers their attendance.
+  The new setting *Classes not held count as absent* (off) brings back the old behaviour. The
+  overview keeps teachers whose classes in range were all not held, and its download calls the
+  column *Not held* (*Of which not held* with the setting on).
+- The all-courses overview's category filter names the categories of the viewer's courses
+  whoever is logged in, instead of only those the logged-in user can browse.
+
 ## 0.7.0 (2026102001)
 
 - **Joined before they were enrolled.** Someone who joined a class by its link before they were

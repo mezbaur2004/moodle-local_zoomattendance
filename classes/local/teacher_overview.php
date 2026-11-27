@@ -79,7 +79,17 @@ class teacher_overview {
                 }
             }
         }
-        return array_intersect_key(\core_course_category::make_categories_list(), $wanted);
+        // Names with their path, in category order, built from the categories themselves:
+        // make_categories_list() only lists what the logged-in user may browse.
+        $list = [];
+        foreach (array_keys($wanted) as $id) {
+            $category = \core_course_category::get($id, IGNORE_MISSING, true);
+            if ($category) {
+                $list[(int) $category->sortorder] = [$id, $category->get_nested_name(false)];
+            }
+        }
+        ksort($list);
+        return array_column($list, 1, 0);
     }
 
     /**
@@ -161,7 +171,7 @@ class teacher_overview {
             foreach ($summary->users as $userid => $user) {
                 // Leave out teachers whose classes in range are all awaiting or reset: nothing to show.
                 $stats = $summary->stats[$userid] ?? null;
-                if (!$stats || (!$stats['expected'] && !$stats['excluded'])) {
+                if (!$stats || (!$stats['expected'] && !$stats['excluded'] && !$stats['notheld'])) {
                     continue;
                 }
                 $rows[] = (object) [

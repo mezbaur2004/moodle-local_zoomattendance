@@ -31,8 +31,8 @@ use local_zoomattendance\local\source\zoom_source;
  *
  * Results are the rows the sync already stores for every matched user. Teachers are expected
  * like students (enrolment, access, enrolment window) but through betrackedteacher. A scheduled
- * class without a Zoom session counts as not held, and so absent, once mod_zoom has fetched
- * reports far enough past it.
+ * class without a Zoom session counts as not held once mod_zoom has fetched reports far enough
+ * past it; it counts as absent only when the teachernotheldabsent setting is on.
  */
 class teacher_attendance {
     /** @var string Ended without a Zoom session, and mod_zoom has fetched reports past it. */
@@ -150,13 +150,15 @@ class teacher_attendance {
     }
 
     /**
-     * Whether an occurrence gets teacher statuses and counts.
+     * Whether an occurrence gets teacher statuses and counts. A class not held only does when it
+     * counts as absent (the teachernotheldabsent setting).
      *
      * @param string $state
      * @return bool
      */
     public static function counts(string $state): bool {
-        return $state === attendance::STATE_EVALUATED || $state === self::STATE_NOTHELD;
+        return $state === attendance::STATE_EVALUATED
+            || ($state === self::STATE_NOTHELD && settings::teacher_notheld_absent());
     }
 
     /**
@@ -215,7 +217,7 @@ class teacher_attendance {
             $status = null;
             if ($state === attendance::STATE_EVALUATED) {
                 $status = status::evaluate($attended, $firstjoin, $start, $end - $start, $this->settings);
-            } else if ($state === self::STATE_NOTHELD) {
+            } else if ($state === self::STATE_NOTHELD && settings::teacher_notheld_absent()) {
                 $status = status::ABSENT;
             }
             $evaluation->rows[$userid] = (object) [
